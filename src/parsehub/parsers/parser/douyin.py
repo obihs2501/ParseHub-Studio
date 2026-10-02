@@ -1,7 +1,12 @@
+import asyncio
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Self, Union
+from urllib.parse import parse_qs, urlparse
+
+import httpx
 
 from ... import ProgressCallback
 from ...provider_api.douyin import DouyinMobileCrawler, DouyinMobileDevice, DouyinWebCrawler
@@ -17,6 +22,7 @@ from ...types import (
     VideoParseResult,
     VideoRef,
 )
+from ...utils.helpers import UA, match_url
 from ..base.base import BaseParser
 
 
@@ -26,6 +32,59 @@ class DouyinParser(BaseParser):
     __match__ = r"^(http(s)?://)?.+douyin.com/(?!share/user|qishui).+"
     __redirect_keywords__ = ["v.douyin", "iesdouyin"]
     __reserved_parameters__ = ["modal_id"]
+
+    @staticmethod
+    def _canonical_url(url: str) -> str | None:
+        parsed = urlparse(url)
+        if parsed.hostname not in {"www.douyin.com", "douyin.com", "www.iesdouyin.com", "iesdouyin.com"}:
+            return None
+        matched = re.search(r"/(?:share/)?(video|note|slides)/(\d+)(?:/|$)", parsed.path)
+        if matched:
+            kind = "note" if matched[1] in {"note", "slides"} else "video"
+            return f"https://www.douyin.com/{kind}/{matched[2]}"
+        query = parse_qs(parsed.query)
+        for key in ("modal_id", "aweme_id", "vid"):
+            value = query.get(key, [""])[0]
+            if value.isdigit():
+                return f"https://www.douyin.com/video/{value}"
+        return None
+
+    async def get_raw_url(self, url: str, *, clean_all: bool = False, headers: dict | None = None) -> str:
+        matched = match_url(url) or url
+        if canonical := self._canonical_url(matched):
+            return canonical
+        if urlparse(matched).hostname != "v.douyin.com":
+            return await super().get_raw_url(matched, clean_all=clean_all, headers=headers)
+        for attempt in range(3):
+            current = matched
+            try:
+                async with httpx.AsyncClient(proxy=self.proxy, trust_env=False, timeout=15) as client:
+                    for _hop in range(8):
+                        if canonical := self._canonical_url(current):
+                            return canonical
+                        async with client.stream(
+                            "GET", current, headers={"User-Agent": UA} if headers is None else headers
+                        ) as response:
+                            if not response.is_redirect:
+                                response.raise_for_status()
+                                break
+                            current = str(response.url.join(response.headers["location"]))
+                            parsed = urlparse(current)
+                            if parsed.scheme not in {"https", "http"} or parsed.hostname not in {
+                                "v.douyin.com",
+                                "www.douyin.com",
+                                "douyin.com",
+                                "www.iesdouyin.com",
+                                "iesdouyin.com",
+                            }:
+                                raise ParseError("抖音短链返回了非预期的跳转地址")
+                raise ParseError("抖音短链未返回作品 ID，链接可能已失效")
+            except httpx.HTTPError as error:
+                if attempt == 2:
+                    detail = str(error) or "连接中断或超时"
+                    raise ParseError(f"获取抖音原始链接失败 ({type(error).__name__}): {detail}") from error
+                await asyncio.sleep(attempt + 1)
+        raise ParseError("获取抖音原始链接失败")
 
     async def _do_parse(self, raw_url: str) -> Union["VideoParseResult", "ImageParseResult", "MultimediaParseResult"]:
         result = await self._fetch_api_result(raw_url)

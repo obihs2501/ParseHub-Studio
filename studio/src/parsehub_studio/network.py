@@ -90,7 +90,7 @@ def proxy_reachable(proxy: str | None, timeout: float = 0.6) -> bool:
 
 
 def resolve_default_proxy(mode: str, custom: str | None) -> str | None:
-    """根据设置推导默认代理；代理不可用时返回 None（直连）。"""
+    """根据设置推导默认代理，不在事件循环内探测 TCP 连接。"""
     if mode == "none":
         return None
     if mode == "custom":
@@ -99,4 +99,4 @@ def resolve_default_proxy(mode: str, custom: str | None) -> str | None:
         candidate = detect_system_proxy()
     if not candidate:
         return None
-    return candidate if proxy_reachable(candidate) else None
+    return candidate

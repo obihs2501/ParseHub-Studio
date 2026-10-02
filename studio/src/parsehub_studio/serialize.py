@@ -10,6 +10,7 @@ from markdown import markdown as md_to_html
 from parsehub.types import AniRef, ImageRef, LivePhotoRef, VideoRef
 
 from parsehub.types.result import RichTextParseResult
+from parsehub.utils.media_network import preview_url
 
 MEDIA_KINDS: tuple[tuple[type, str], ...] = (
     (VideoRef, "video"),
@@ -59,6 +60,7 @@ def media_to_dict(media: Any) -> dict[str, Any]:
     kind = media_kind(media)
     data["kind"] = kind
     data["kind_label"] = KIND_LABELS.get(kind, "媒体")
+    data["preview_url"] = preview_url(data["url"]) if kind in {"image", "livephoto", "ani"} else data.get("thumb_url")
     if not data.get("thumb_url"):
         data["thumb_url"] = None
     return data

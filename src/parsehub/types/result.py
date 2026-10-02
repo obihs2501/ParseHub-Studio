@@ -1,3 +1,4 @@
+import asyncio
 import json
 import shutil
 import time
@@ -146,13 +147,19 @@ class ParseResult(ABC):  # noqa: B024
             mf: AnyMediaFile
             match media:
                 case ImageRef():
-                    mf = ImageFile(path=f, width=media.width, height=media.height)
+                    mf = await asyncio.to_thread(ImageFile, path=f, width=media.width, height=media.height)
                 case VideoRef():
-                    mf = VideoFile(path=f, width=media.width, height=media.height, duration=media.duration)
+                    mf = await asyncio.to_thread(
+                        VideoFile, path=f, width=media.width, height=media.height, duration=media.duration
+                    )
                 case AniRef():
-                    mf = AniFile(path=f, width=media.width, height=media.height, duration=media.duration)
+                    mf = await asyncio.to_thread(
+                        AniFile, path=f, width=media.width, height=media.height, duration=media.duration
+                    )
                 case LivePhotoRef():
-                    mf = LivePhotoFile(path=f, width=media.width, height=media.height, duration=media.duration)
+                    mf = await asyncio.to_thread(
+                        LivePhotoFile, path=f, width=media.width, height=media.height, duration=media.duration
+                    )
                     if media.video_url:
                         try:
                             save_path = (

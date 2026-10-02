@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ParseHub Studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "io.github.obihs2501.parsehubstudio",
   "build": {
     "frontendDist": "../desktop"
@@ -18,7 +18,7 @@
     "targets": ["nsis"],
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "externalBin": ["binaries/parsehub-sidecar"],
-    "resources": ["resources/ffmpeg/*", "resources/THIRD_PARTY.md"],
+    "resources": ["resources/THIRD_PARTY.md"],
     "shortDescription": "社交媒体解析、预览与下载",
     "copyright": "ParseHub and ParseHub Studio contributors",
     "windows": {

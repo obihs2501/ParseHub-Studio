@@ -20,6 +20,8 @@ const state = {
   lightbox: { items: [], index: 0, loaded: false },
   picker: { path: '', dirs: [], parent: null },
   pickerTarget: null,
+  serviceFailures: 0,
+  serviceChecking: false,
 };
 
 /* ------------------------------------------------------------------ 工具 */
@@ -55,24 +57,31 @@ async function openExternal(url) {
 }
 
 async function checkService() {
+  if (state.serviceChecking) return;
+  state.serviceChecking = true;
   const badge = $('#serviceStatus');
   const alert = $('#serviceAlert');
   try {
-    const response = await fetch('/api/health', { signal: AbortSignal.timeout(4000), cache: 'no-store' });
+    const response = await fetch('/api/health', { signal: AbortSignal.timeout(12000), cache: 'no-store', priority: 'high' });
     if (!response.ok) throw new Error('服务会话已失效');
     const health = await response.json();
     state.desktop = health.desktop;
     state.health = health;
+    state.serviceFailures = 0;
     badge.textContent = health.desktop ? '桌面服务就绪' : '本地服务就绪';
     badge.dataset.online = 'true';
     alert.hidden = true;
     return true;
   } catch (error) {
+    state.serviceFailures += 1;
+    if (state.serviceFailures < 3) return false;
     badge.textContent = '服务已断开';
     badge.dataset.online = 'false';
     alert.textContent = '无法连接本地解析服务。请关闭并重新启动 ParseHub Studio；已有下载文件不会被删除。';
     alert.hidden = false;
     return false;
+  } finally {
+    state.serviceChecking = false;
   }
 }
 
@@ -215,8 +224,8 @@ const detect = debounce(async () => {
 
 /** 预览地址：预览模式只取缩略图，避免拉原图 */
 function previewSource(media) {
-  if (media.thumb_url) return media.thumb_url;
-  return state.previewMode ? '' : media.url;
+  if (media.kind === 'video') return media.thumb_url || '';
+  return state.previewMode ? (media.preview_url || media.url) : media.url;
 }
 
 function tileMarkup(item, index) {
@@ -229,7 +238,7 @@ function tileMarkup(item, index) {
     ? '<div class="play-icon"><span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10-6.5z"/></svg></span></div>'
     : '';
   const mediaEl = source
-    ? '<img class="tile-media" data-tile-index="' + index + '" data-src="' + esc(source) + '" src="' + esc(source) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />'
+    ? '<img class="tile-media" data-tile-index="' + index + '" data-src="' + esc(source) + '" src="' + esc(proxied(source)) + '" alt="第 ' + (index + 1) + ' 个媒体" loading="lazy" decoding="async" referrerpolicy="no-referrer" />'
     : '';
   return '<button class="media-tile" data-index="' + index + '" data-state="' + tileState + '" title="点击预览">' +
     mediaEl +
@@ -334,7 +343,8 @@ function renderResult() {
   const content = result.html
     ? '<div class="result-content rich">' + result.html + '</div>'
     : result.content
-      ? '<div class="result-content">' + esc(result.content) + '</div>'
+      ? '<div class="post-caption"><div class="result-content" id="postCaption">' + esc(result.content.trim().replace(/\n{3,}/g, '\n\n')) + '</div>' +
+        '<button class="btn tiny ghost" data-result-action="expand-text" aria-expanded="false" aria-controls="postCaption">展开全文</button></div>'
       : '';
   const source = result.raw_url
     ? '<div class="result-meta">原始链接：<a href="' + esc(result.raw_url) + '" target="_blank" rel="noreferrer">' + esc(result.raw_url) + '</a></div>'
@@ -345,7 +355,7 @@ function renderResult() {
       platformTag +
       '<span class="tag">' + esc(result.type_label) + '</span>' +
       '<span class="tag">' + result.media_count + ' 个媒体</span>' +
-      '<h2 class="result-title">' + esc(result.title || '（无标题）') + '</h2>' +
+      '<h2 class="result-title">' + esc(result.title || (result.content || '').trim().split('\n')[0].slice(0, 100) || '解析结果') + '</h2>' +
     '</div>' +
     '<div class="result-toolbar">' +
       '<button class="btn primary" data-result-action="download-all">下载全部</button>' +
@@ -355,14 +365,13 @@ function renderResult() {
           '<option value="thumb"' + (state.quality === 'thumb' ? ' selected' : '') + '>预览图（缩略图）</option>' +
         '</select>' +
       '</label>' +
-      '<label class="check" title="只加载缩略图，需要时再手动加载原文件"><input type="checkbox" id="previewToggle"' + (state.previewMode ? ' checked' : '') + ' /><span>预览模式</span></label>' +
+      '<label class="check" title="网格使用高清预览；取消则网格直接加载原图。点开大图始终显示原文件"><input type="checkbox" id="previewToggle"' + (state.previewMode ? ' checked' : '') + ' /><span>高清预览</span></label>' +
       '<button class="btn" data-result-action="copy-json">复制 JSON</button>' +
       (result.raw_url ? '<button class="btn ghost" data-result-action="open-raw">打开原帖</button>' : '') +
       '<button class="btn ghost" data-result-action="reparse">重新解析</button>' +
     '</div>' +
     source +
     content +
-    '<div style="margin-top:14px"></div>' +
     renderMediaGrid(result.media);
 }
 
@@ -504,7 +513,7 @@ function openLightbox(index) {
   if (!media.length) return;
   state.lightbox.items = media;
   state.lightbox.index = Math.max(0, Math.min(index, media.length - 1));
-  state.lightbox.loaded = !state.previewMode;
+  state.lightbox.loaded = true;
   $('#lightbox').hidden = false;
   renderLightbox();
 }
@@ -523,8 +532,8 @@ function renderLightbox() {
   const previewing = !loaded;
   const raw = loaded ? media.url : media.thumb_url;
   $('#lbStage').innerHTML = loaded && media.kind === 'video'
-    ? '<video data-src="' + esc(raw) + '" src="' + esc(raw) + '" controls autoplay playsinline></video>'
-    : '<img data-src="' + esc(raw) + '" src="' + esc(raw) + '" alt="" referrerpolicy="no-referrer" />';
+    ? '<video data-src="' + esc(raw) + '" src="' + esc(proxied(raw)) + '" controls autoplay playsinline></video>'
+    : '<img data-src="' + esc(raw) + '" src="' + esc(proxied(raw)) + '" alt="正在加载原图…" referrerpolicy="no-referrer" />';
   $$('#lightbox .lb-nav').forEach((node) => (node.hidden = items.length < 2));
   const info = [
     (index + 1) + ' / ' + items.length,
@@ -571,6 +580,10 @@ function renderSettingsGeneral() {
       '<div class="desc">解析、下载与媒体预览都会优先使用这里的全局代理；平台代理仍可单独覆盖。</div>' +
     '</div>' +
     '<div class="field"><label class="check"><input type="checkbox" id="setMetadata" ' + (s.save_metadata ? 'checked' : '') + ' /><span>同时保存 metadata.json</span></label></div>' +
+    '<div class="field"><label for="setFfmpegDir">本机 FFmpeg 目录（可选）</label>' +
+      '<div class="path-row"><input id="setFfmpegDir" value="' + esc(s.ffmpeg_dir || '') + '" placeholder="留空则从系统 PATH 查找" />' +
+      '<button class="btn" data-picker-for="#setFfmpegDir">浏览…</button></div>' +
+      '<div class="desc">选择含 ffmpeg.exe 和 ffprobe.exe 的 bin 目录；轻量版不再重复打包 FFmpeg。</div></div>' +
     '<button class="btn primary" id="saveGeneral">保存设置</button>';
 
   $('#saveGeneral').addEventListener('click', async () => {
@@ -583,6 +596,7 @@ function renderSettingsGeneral() {
           proxy_mode: $('#setProxyMode').value,
           proxy_url: $('#setProxyUrl').value.trim(),
           save_metadata: $('#setMetadata').checked,
+          ffmpeg_dir: $('#setFfmpegDir').value.trim(),
         },
       });
       toast('设置已保存', 'ok', 1800);
@@ -713,7 +727,7 @@ async function renderSettingsAbout() {
       '<div class="desc">ParseHub Studio 是 <a href="https://github.com/z-mio/ParseHub" target="_blank" rel="noreferrer">ParseHub</a> 的可视化界面，' +
       '解析与下载能力全部来自 ParseHub 本体，支持 17+ 社交平台，配置与命令行工具共用。</div>' +
       '<div class="desc">运行方式：' + (state.desktop ? 'Tauri 2 + Python sidecar' : '浏览器开发模式') +
-      ' · 版本 ' + esc((state.health && state.health.version) || '0.1.0') +
+      ' · 版本 ' + esc((state.health && state.health.version) || '0.2.0') +
       ' · FFmpeg ' + (state.health && state.health.ffmpeg ? '已就绪' : '未检测到（部分合并/转码功能不可用）') + '</div>' +
     '</div>' +
     '<div class="field">' +
@@ -918,6 +932,12 @@ async function handleClick(event) {
   const resultAction = event.target.closest('[data-result-action]');
   if (resultAction) {
     const kind = resultAction.dataset.resultAction;
+    if (kind === 'expand-text') {
+      const caption = $('.post-caption');
+      const expanded = caption.classList.toggle('expanded');
+      resultAction.textContent = expanded ? '收起正文' : '展开全文';
+      resultAction.setAttribute('aria-expanded', String(expanded));
+    }
     if (kind === 'download-all') createTask({ text: $('#input').value.trim() });
     if (kind === 'copy-json') copyText(JSON.stringify(state.result, null, 2), 'JSON 已复制');
     if (kind === 'open-raw' && state.result && state.result.raw_url) openExternal(state.result.raw_url);
@@ -1005,7 +1025,7 @@ function bindLightboxEvents() {
   const step = (delta) => {
     const total = state.lightbox.items.length;
     state.lightbox.index = Math.max(0, Math.min(total - 1, state.lightbox.index + delta));
-    state.lightbox.loaded = !state.previewMode;
+    state.lightbox.loaded = true;
     renderLightbox();
   };
   $('#lbClose').addEventListener('click', closeLightbox);

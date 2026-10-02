@@ -23,7 +23,7 @@ analysis = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "pytest", "webview", "pythonnet"],
+    excludes=["tkinter", "matplotlib", "pytest", "webview", "pythonnet", "cv2", "numpy", "pydub"],
     noarchive=False,
 )
 archive = PYZ(analysis.pure)

@@ -50,13 +50,6 @@ fn launch_backend(app: &tauri::AppHandle) -> Result<(u16, String), String> {
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::from(log));
-    let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
-    let ffmpeg = resources.join("resources/ffmpeg");
-    if ffmpeg.is_dir() {
-        let mut paths = vec![ffmpeg];
-        paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
-        command.env("PATH", std::env::join_paths(paths).map_err(|error| error.to_string())?);
-    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

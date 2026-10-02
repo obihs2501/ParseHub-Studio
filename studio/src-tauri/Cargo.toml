@@ -1,6 +1,6 @@
 [package]
 name = "parsehub-studio"
-version = "0.1.0"
+version = "0.2.0"
 description = "ParseHub Studio desktop shell"
 authors = ["ParseHub Studio contributors"]
 edition = "2021"

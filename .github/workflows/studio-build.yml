@@ -36,6 +36,7 @@ jobs:
           node-version: "22"
       - run: uv sync --locked
       - run: node --check src/parsehub_studio/web/app.js
+      - run: node tests/frontend_test.cjs
       - run: uv run python tests/smoke_test.py
       - run: uv run python -m unittest discover -s tests -p "test_*.py" -v
       - run: uv run python tests/sidecar_check.py
@@ -72,38 +73,24 @@ jobs:
           uv sync --locked --group build
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm ci
-      - name: Prepare FFmpeg resources
-        run: |
-          choco install ffmpeg --version=8.0.1 -y --no-progress
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          New-Item -ItemType Directory -Force src-tauri/resources/ffmpeg | Out-Null
-          $root = Join-Path $env:ChocolateyInstall 'lib/ffmpeg/tools'
-          foreach ($name in @('ffmpeg.exe', 'ffprobe.exe')) {
-            $binary = Get-ChildItem -LiteralPath $root -Recurse -Filter $name | Select-Object -First 1
-            if (!$binary) { throw "Missing $name" }
-            Copy-Item -LiteralPath $binary.FullName -Destination src-tauri/resources/ffmpeg/
-          }
-          Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { $_.Name -match '^(LICENSE|COPYING|README)' } | ForEach-Object {
-            Copy-Item -LiteralPath $_.FullName -Destination src-tauri/resources/ffmpeg/
-          }
-          & ./src-tauri/resources/ffmpeg/ffmpeg.exe -version | Out-File src-tauri/resources/ffmpeg/BUILD.txt
       - name: Build Python sidecar
         run: |
           uv run python packaging/make_icon.py
           uv run pyinstaller --noconfirm --clean packaging/parsehub_studio.spec
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run python packaging/check_bundle.py
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force src-tauri/binaries | Out-Null
           Copy-Item -LiteralPath dist/parsehub-sidecar.exe -Destination src-tauri/binaries/parsehub-sidecar-x86_64-pc-windows-msvc.exe
       - name: Test frozen sidecar (no Python imports from source)
         run: uv run python tests/sidecar_check.py --executable dist/parsehub-sidecar.exe
       - name: Build Tauri NSIS installer
-        run: npm run desktop:build -- --target x86_64-pc-windows-msvc
+        run: npm run desktop:build -- --target x86_64-pc-windows-msvc --locked
       - name: Prepare portable app
         run: |
-          New-Item -ItemType Directory -Force dist/ParseHubStudio-portable/resources/ffmpeg | Out-Null
+          New-Item -ItemType Directory -Force dist/ParseHubStudio-portable/resources | Out-Null
           Copy-Item src-tauri/target/x86_64-pc-windows-msvc/release/parsehub-studio.exe dist/ParseHubStudio-portable/ParseHubStudio.exe
           Copy-Item dist/parsehub-sidecar.exe dist/ParseHubStudio-portable/
-          Copy-Item src-tauri/resources/ffmpeg/* dist/ParseHubStudio-portable/resources/ffmpeg/
           Copy-Item src-tauri/resources/THIRD_PARTY.md dist/ParseHubStudio-portable/resources/
           Copy-Item ../LICENSE dist/ParseHubStudio-portable/
           Copy-Item README.md dist/ParseHubStudio-portable/
@@ -167,12 +154,17 @@ jobs:
           path: release
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: studio-v0.1.0-${{ github.run_number }}
+          tag_name: studio-v0.2.0-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: ParseHub Studio 0.1.0 · Build ${{ github.run_number }}
+          name: ParseHub Studio 0.2.0 Lite · Build ${{ github.run_number }}
           prerelease: true
           body: |
-            Windows 10/11 x64 · Tauri 2 + bundled Python sidecar + FFmpeg.
+            Windows 10/11 x64 · Tauri 2 + bundled Python sidecar · Lightweight build.
+
+            - HD image previews, larger uncropped gallery, expandable text, original-resolution lightbox.
+            - Weibo image CDN failover without lowering download quality; Douyin short-link redirect fix.
+            - Reduced false service-disconnection alerts and non-blocking proxy/metadata work.
+            - No bundled FFmpeg, OpenCV, NumPy or pydub. Uses your installed FFmpeg/FFprobe via PATH or Settings.
 
             - Install: download the `setup.exe` file. WebView2 is installed automatically if missing (Internet required).
             - Portable: extract the entire ZIP, then run `ParseHubStudio.exe`. Requires Microsoft Edge WebView2 Runtime.

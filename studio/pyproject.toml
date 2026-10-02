@@ -1,6 +1,6 @@
 [project]
 name = "parsehub-studio"
-version = "0.1.0"
+version = "0.2.0"
 description = "ParseHub 可视化桌面应用：解析社交平台内容并可视化预览、下载"
 readme = "README.md"
 requires-python = ">=3.12"

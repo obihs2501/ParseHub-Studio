@@ -43,9 +43,9 @@ class VideoFile(MediaFile):
     def __post_init__(self) -> None:
         if not self.width or not self.duration:
             info = MediaInfoReader.read(path=self.path)
-            self.width = info.width
-            self.height = info.height
-            self.duration = info.duration
+            self.width = info.width or self.width
+            self.height = info.height or self.height
+            self.duration = info.duration or self.duration
 
 
 @dataclass(kw_only=True)

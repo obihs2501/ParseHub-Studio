@@ -12,18 +12,21 @@
 - `SHA256SUMS.txt`：安装器与免安装包的 SHA-256 校验值。
 
 支持 Windows 10/11 x64。**用户不需要安装 Python、Node.js、Rust 或编译工具。**
-免安装版需要系统已有 Microsoft Edge WebView2 Runtime。应用内置 FFmpeg/FFprobe。
+免安装版需要系统已有 Microsoft Edge WebView2 Runtime。0.2.0 起提供轻量版，不再内置 FFmpeg/FFprobe、OpenCV、NumPy 和 pydub。
+已有 FFmpeg 的电脑直接使用系统 PATH；也可在「设置 → 通用 → 本机 FFmpeg 目录」选择含 `ffmpeg.exe` 和 `ffprobe.exe` 的 bin 目录。
+普通图片下载不需要 FFmpeg；部分视频合并/转码需要。视频尺寸与时长改用本机 FFprobe 读取，缺失时仍保留平台元数据。
 当前为未签名预览版，Windows SmartScreen 可能提示未知发布者；请核对下载来源和校验值。
 第三方平台的 Cookie、网络与风控要求仍然适用，不保证所有平台链接始终可解析。
 
 ## 界面功能
 
 - 粘贴链接或分享文案，自动识别平台，清洗链接、解析并下载。
-- 图片、视频、GIF、Live Photo 和富文本预览；缩略图模式和原图下载。
+- 图片、视频、GIF、Live Photo 和富文本预览；微博网格使用 1024 像素高清图，点开灯箱始终加载原图。
+- 竖图不再裁成方块，正文默认折叠、可展开全文，图文区不再嵌套正文滚动条。
 - 下载队列、进度、取消任务、单媒体下载和打开输出目录。
 - 历史记录、深浅色主题、可视化目录选择。
 - 按平台设置代理和 Cookie，与 ParseHub CLI 的配置共用。
-- 状态栏显示本地服务连接状态；断连时明确提示，不会删除已有下载文件。
+- 状态栏显示本地服务连接状态；连续三次健康检查失败才提示断连，短暂加载延迟不会闪烁报错。
 - 关于页显示运行方式、FFmpeg 状态和配置位置。
 
 关闭桌面窗口会停止 sidecar 和正在运行的下载；未完成的任务不会自动恢复。
@@ -37,8 +40,8 @@ HTTP API 与媒体代理需要会话凭据，拒绝跨站请求；富文本使�
 推送相关代码或在 Actions 页面点击 **Run workflow** 即可，无需本地编译环境。
 
 1. Linux 运行离线 API、安全测试、源码 sidecar 启停测试和 JavaScript 语法检查。
-2. Windows 安装锁定的 Python/Node 依赖、Rust 工具链与 FFmpeg 8.0.1。
-3. PyInstaller 把 Python 和全部动态解析器打包成单文件 sidecar。
+2. Windows 安装锁定的 Python/Node 依赖和 Rust 工具链，不再下载或捆绑 FFmpeg。
+3. PyInstaller 把 Python 和全部动态解析器打包成单文件 sidecar，并检查产物中没有被移除的重型依赖。
 4. 对冻结后的 EXE 测试鉴权、平台发现、静态资源、父进程管道关闭后的退出。
 5. Tauri 构建 NSIS 安装器；组装完整免安装包。
 6. 真实启动 Tauri WebView，确认内置 sidecar 页面加载成功。
@@ -84,4 +87,11 @@ uv run python tests/sidecar_check.py
 设置与历史由 `platformdirs` 保存，具体 CLI 配置路径可在「设置 → 关于」查看。
 分享日志前请检查并移除其中可能出现的链接或账户信息；不要上传 Cookie 配置文件。
 
-FFmpeg 等第三方组件的许可证见 `src-tauri/resources/THIRD_PARTY.md` 和安装包中的资源目录。
+第三方组件说明见 `src-tauri/resources/THIRD_PARTY.md` 和安装包中的资源目录。
+
+## 0.2.0 修复说明
+
+- 微博原图下载与本地媒体代理遇到单个 `wx*.sinaimg.cn` 节点故障会切换同组 CDN，保留 `/large/` 原图路径，不用缩略图冒充原图；错误显示异常类型与失败主机。
+- 抖音分享链接从第一跳的 `Location` 提取作品 ID，不再依赖可能连接失败的分享落地页；清洗与解析共用同一处理。
+- 代理读取、HTTP 客户端初始化与本地媒体信息探测移出异步服务主循环；系统代理缓存 30 秒，自定义代理不会悄悄回退直连。
+- 这些修复不绕过平台登录或风控；若平台接口拒绝请求，仍需有效 Cookie 或合适的网络配置。

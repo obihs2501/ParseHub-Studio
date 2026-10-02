@@ -14,6 +14,7 @@ import aiofiles
 import httpx
 
 from ..errors import DownloadError
+from .media_network import media_candidates, media_headers
 
 ProgressCallback = Callable[..., Awaitable[None]]
 
@@ -61,8 +62,10 @@ class SegmentDownloader:
         timeout: float | httpx.Timeout | None = None,
     ):
         self.url = url
+        self.candidates = media_candidates(url)
         self.save_path = save_path
-        self.headers = dict(headers or {})
+        self.headers = dict(httpx.Headers(media_headers(url)))
+        self.headers.update(dict(httpx.Headers(headers or {})))
         self.proxy = proxy
         self.progress = progress
         self.progress_args = progress_args
@@ -71,7 +74,7 @@ class SegmentDownloader:
         self.chunk_size = max(1, chunk_size)
         self.connections = max(1, connections)
         self.min_split_size = max(1, min_split_size)
-        self.timeout = timeout
+        self.timeout = timeout if timeout is not None else httpx.Timeout(60.0, connect=10.0)
 
         self.resolved_path: Path | None = None
         self.temp_dir: Path | None = None
@@ -83,9 +86,10 @@ class SegmentDownloader:
     async def run(self) -> str:
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
+            self.url = self.candidates[attempt % len(self.candidates)]
             self._reset_progress()
             try:
-                async with self._client() as client:
+                async with await asyncio.to_thread(self._client) as client:
                     self.resolved_path = await self._resolve_path(client)
                     await self._download_once(client)
                     return str(self.resolved_path)
@@ -95,12 +99,17 @@ class SegmentDownloader:
                     raise
             except httpx.HTTPStatusError as e:
                 last_error = e
-                if attempt == self.max_retries or not _is_retryable_status(e.response.status_code):
+                retryable = _is_retryable_status(e.response.status_code) or (
+                    len(self.candidates) > 1 and e.response.status_code == 403
+                )
+                if attempt == self.max_retries or not retryable:
                     raise DownloadError(f"HTTP错误: {e.response.status_code}") from e
             except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError, httpx.ReadError) as e:
                 last_error = e
                 if attempt == self.max_retries:
-                    raise DownloadError(f"网络连接错误: {e}") from e
+                    detail = str(e) or "连接中断或超时"
+                    host = urlparse(self.url).hostname
+                    raise DownloadError(f"网络连接错误 ({type(e).__name__}, {host}): {detail}") from e
             except Exception as e:
                 last_error = e
                 if attempt == self.max_retries:
@@ -119,6 +128,7 @@ class SegmentDownloader:
             "headers": self.headers,
             "proxy": self.proxy,
             "limits": limits,
+            "trust_env": False,
         }
         if self.timeout is not None:
             kwargs["timeout"] = self.timeout

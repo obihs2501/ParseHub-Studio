@@ -1,10 +1,13 @@
 """媒体文件信息读取"""
 
+import json
 import math
+import os
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-import cv2
 from PIL import Image
 
 _IMAGE_SUFFIXES = frozenset(
@@ -92,15 +95,40 @@ class MediaInfoReader:
     @staticmethod
     def read_video(path: str | Path) -> MediaInfo:
         """读取视频宽高和时长（只读容器元数据，不解码帧）"""
-        cap = cv2.VideoCapture(str(path))
+        ffprobe = shutil.which("ffprobe")
+        if not ffprobe:
+            return MediaInfo()
         try:
-            if not cap.isOpened():
-                raise ValueError(f"无法打开视频文件: {path}")
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-            duration = math.ceil(frame_count / fps) if fps > 0 else 0
-            return MediaInfo(width=width, height=height, duration=duration)
-        finally:
-            cap.release()
+            completed = subprocess.run(
+                [
+                    ffprobe,
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=width,height,duration:format=duration",
+                    "-of",
+                    "json",
+                    str(Path(path).resolve()),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=10,
+                check=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            data = json.loads(completed.stdout)
+            stream = next(iter(data.get("streams", [])), {})
+            duration = stream.get("duration")
+            if duration in (None, "N/A"):
+                duration = data.get("format", {}).get("duration", 0)
+            seconds = float(duration or 0)
+            return MediaInfo(
+                width=int(stream.get("width", 0)),
+                height=int(stream.get("height", 0)),
+                duration=math.ceil(seconds) if math.isfinite(seconds) else 0,
+            )
+        except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+            return MediaInfo()

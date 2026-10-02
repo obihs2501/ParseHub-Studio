@@ -42,6 +42,7 @@ class Settings(BaseModel):
     proxy_mode: str = "system"
     """网络代理: system 跟随系统, custom 自定义, none 直连"""
     proxy_url: str = ""
+    ffmpeg_dir: str = ""
     """proxy_mode 为 custom 时使用的代理地址"""
 
 

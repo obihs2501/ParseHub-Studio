@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,6 +24,7 @@ from parsehub.cli_config import default_config_dir
 from parsehub.config import GlobalConfig
 from parsehub.errors import ParseError, UnknownPlatform
 from parsehub.utils.helpers import UA, match_url
+from parsehub.utils.media_network import media_candidates, media_headers
 
 from .history import HistoryStore
 from .network import resolve_default_proxy
@@ -30,6 +32,7 @@ from .platform_config import PlatformConfigBridge
 from .serialize import result_to_payload
 from .settings import Settings, SettingsStore
 from .tasks import TaskManager
+from . import __version__
 from .security import install_security
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -101,6 +104,7 @@ class SettingsPayload(StrictModel):
     download_quality: Literal["origin", "thumb"] | None = None
     proxy_mode: str | None = None
     proxy_url: str | None = None
+    ffmpeg_dir: str | None = None
 
 
 class AppContext:
@@ -112,14 +116,23 @@ class AppContext:
         self.history = HistoryStore()
         self.bridge = PlatformConfigBridge()
         self.parsehub = ParseHub()
+        self._proxy_cache: tuple[float, str | None] = (0, None)
+        self._original_path = os.environ.get("PATH", "")
         self.tasks = TaskManager(self.bridge, on_success=self._remember)
         self.apply_settings()
 
     def apply_settings(self) -> None:
         GlobalConfig.default_save_dir = Path(self.settings.default_save_dir)
+        self._proxy_cache = (0, None)
+        directory = self.settings.ffmpeg_dir.strip()
+        os.environ["PATH"] = os.pathsep.join([directory, self._original_path]) if directory else self._original_path
 
-    def default_proxy(self) -> str | None:
-        return resolve_default_proxy(self.settings.proxy_mode, self.settings.proxy_url)
+    async def default_proxy(self) -> str | None:
+        checked, proxy = self._proxy_cache
+        if time.monotonic() - checked > 30:
+            proxy = await run_in_threadpool(resolve_default_proxy, self.settings.proxy_mode, self.settings.proxy_url)
+            self._proxy_cache = (time.monotonic(), proxy)
+        return proxy
 
     def update_settings(self, payload: SettingsPayload) -> Settings:
         data = self.settings.model_dump()
@@ -149,7 +162,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app(session_token: str | None = None) -> FastAPI:
-    app = FastAPI(title="ParseHub Studio", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="ParseHub Studio", version=__version__, lifespan=lifespan)
     install_security(app, session_token)
     app.state.ctx = AppContext()
 
@@ -158,10 +171,10 @@ def create_app(session_token: str | None = None) -> FastAPI:
 
     # ---------------------------------------------------------------- 基础信息
     @app.get("/api/health")
-    async def health() -> dict[str, Any]:
+    def health() -> dict[str, Any]:
         import shutil
 
-        return {"ok": True, "version": "0.1.0", "desktop": bool(session_token), "ffmpeg": bool(shutil.which("ffmpeg"))}
+        return {"ok": True, "version": __version__, "desktop": bool(session_token), "ffmpeg": bool(shutil.which("ffmpeg")), "ffprobe": bool(shutil.which("ffprobe"))}
 
     @app.get("/api/platforms")
     async def platforms(request: Request) -> dict[str, Any]:
@@ -190,7 +203,7 @@ def create_app(session_token: str | None = None) -> FastAPI:
             parse_proxy, _, _ = context.bridge.resolve(
                 platform.id if platform else None,
                 parse_proxy=parse_proxy,
-                default_proxy=context.default_proxy(),
+                default_proxy=await context.default_proxy(),
             )
 
         try:
@@ -223,7 +236,7 @@ def create_app(session_token: str | None = None) -> FastAPI:
                 platform.id if platform else None,
                 parse_proxy=proxy,
                 cookie=cookie,
-                default_proxy=context.default_proxy(),
+                default_proxy=await context.default_proxy(),
             )
         try:
             result = await context.parsehub.parse(payload.text, proxy=proxy, cookie=cookie)
@@ -253,7 +266,7 @@ def create_app(session_token: str | None = None) -> FastAPI:
         if options.get("connections") is None:
             options["connections"] = context.settings.connections
         if options.get("default_proxy") is None:
-            options["default_proxy"] = context.default_proxy()
+            options["default_proxy"] = await context.default_proxy()
         task = context.tasks.create(payload.text, options)
         return task.to_dict()
 
@@ -370,7 +383,7 @@ def create_app(session_token: str | None = None) -> FastAPI:
             referer=referer,
             download=bool(download),
             filename=filename,
-            proxy=ctx(request).default_proxy(),
+            proxy=await ctx(request).default_proxy(),
         )
 
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
@@ -391,7 +404,7 @@ async def _stream_media(
     if parsed.scheme not in {"http", "https"}:
         raise HTTPException(status_code=400, detail="仅支持 http/https 媒体地址")
 
-    headers: dict[str, str] = {"User-Agent": UA, "Accept": "*/*"}
+    headers: dict[str, str] = {**media_headers(src), "Accept": "*/*"}
     if referer:
         ref = urlparse(referer)
         if ref.scheme and ref.netloc:
@@ -402,21 +415,31 @@ async def _stream_media(
     if range_header:
         headers["Range"] = range_header
 
-    client = httpx.AsyncClient(proxy=proxy, follow_redirects=True, timeout=httpx.Timeout(30.0, read=180.0))
-    upstream = client.build_request("GET", src, headers=headers)
+    client = await run_in_threadpool(
+        httpx.AsyncClient, proxy=proxy, trust_env=False, follow_redirects=True, timeout=httpx.Timeout(60.0, connect=8.0)
+    )
+    response = None
+    last_error = ""
     try:
-        response = await client.send(upstream, stream=True)
-    except Exception as exc:  # noqa: BLE001
+        for candidate in media_candidates(src):
+            try:
+                upstream = client.build_request(request.method, candidate, headers=headers)
+                response = await client.send(upstream, stream=True)
+                if response.status_code < 400:
+                    break
+                last_error = f"上游返回 {response.status_code}"
+                await response.aclose()
+                response = None
+            except httpx.HTTPError as error:
+                last_error = f"{type(error).__name__}: {str(error) or '连接中断或超时'}"
+        if response is None:
+            raise HTTPException(status_code=502, detail=f"媒体获取失败: {last_error}")
+    except BaseException:
         await client.aclose()
-        raise HTTPException(status_code=502, detail=f"媒体获取失败: {exc}") from exc
-
-    if response.status_code >= 400:
-        await response.aclose()
-        await client.aclose()
-        raise HTTPException(status_code=502, detail=f"上游返回 {response.status_code}")
+        raise
 
     out_headers = {key: value for key in STREAM_HEADERS if (value := response.headers.get(key))}
-    out_headers.setdefault("Cache-Control", "public, max-age=3600")
+    out_headers["Cache-Control"] = "private, max-age=3600"
     if download:
         name = filename or os.path.basename(parsed.path) or "download"
         out_headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(name)}"
