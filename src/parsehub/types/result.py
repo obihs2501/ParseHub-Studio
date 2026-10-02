@@ -114,7 +114,7 @@ class ParseResult(ABC):  # noqa: B024
             dl_progress = None
             dl_progress_args = ()
             dl_progress_kwargs: dict = {}
-            if callback and is_single:
+            if callback:
 
                 async def _byte_callback(current: int, total: int, *args: Any, **kwargs: Any) -> None:
                     await callback(current, total, "bytes", *args, **kwargs)
@@ -177,6 +177,9 @@ class ParseResult(ABC):  # noqa: B024
                                 save_path,
                                 headers=headers,
                                 proxy=proxy,
+                                progress=dl_progress,
+                                progress_args=dl_progress_args,
+                                progress_kwargs=dl_progress_kwargs,
                                 connections=connections,
                             )
                         except Exception as e:

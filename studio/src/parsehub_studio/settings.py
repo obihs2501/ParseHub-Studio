@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.parse import urlparse
 
 from platformdirs import user_config_dir, user_data_dir
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -11,6 +12,20 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from .naming import DEFAULT_FILE, DEFAULT_FOLDER, validate_template
 
 APP_NAME = "ParseHubStudio"
+
+
+class Bookmark(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    url: str = Field(max_length=2000)
+    group: str = Field(default="通用", max_length=100)
+
+    @field_validator("url")
+    @classmethod
+    def valid_url(cls, value):
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("收藏地址必须是 HTTP(S) 网页，且不能包含账户密码")
+        return value
 
 
 def config_dir() -> Path:
@@ -48,6 +63,9 @@ class Settings(BaseModel):
     ffmpeg_dir: str = ""
     folder_template: str = DEFAULT_FOLDER
     file_template: str = DEFAULT_FILE
+    bookmarks: list[Bookmark] = Field(default_factory=lambda: [
+        Bookmark(name="KuKuTool", url="https://dy.kukutool.com/", group="抖音")
+    ], max_length=200)
 
     @field_validator("folder_template", "file_template")
     @classmethod

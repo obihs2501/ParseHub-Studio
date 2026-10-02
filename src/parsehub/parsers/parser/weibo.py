@@ -21,6 +21,7 @@ class WeiboParser(BaseParser):
     __reserved_parameters__ = ["fid"]
 
     async def _do_parse(self, raw_url: str) -> MultimediaParseResult | VideoParseResult | ImageParseResult:
+        self._author = self._author_id = self._post_id = self._published_at = ""
         weibo = await WeiboAPI(self.proxy).parse(raw_url)
         if isinstance(weibo, WeiboTVContent):
             return VideoParseResult(
@@ -34,6 +35,8 @@ class WeiboParser(BaseParser):
 
         data = weibo.data
         self._author = (getattr(data, "user", None) or {}).get("screen_name", "")
+        self._author_id = str((getattr(data, "user", None) or {}).get("id") or "")
+        self._published_at = getattr(data, "created_at", "") or ""
         self._post_id = str(data.id or data.mid or "")
         text = self.f_text(data.content)
         media: list[VideoRef | ImageRef | LivePhotoRef | AniRef] = []
@@ -106,6 +109,8 @@ class WeiboParser(BaseParser):
     async def parse(self, url: str):
         result = await super().parse(url)
         result.author = getattr(self, "_author", "")
+        result.author_id = getattr(self, "_author_id", "")
+        result.published_at = getattr(self, "_published_at", "")
         result.post_id = getattr(self, "_post_id", "")
         return result
 

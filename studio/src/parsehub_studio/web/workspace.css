@@ -1,4 +1,15 @@
 :root { --bg: #262624; --panel: #30302e; --panel-solid: #292927; --panel-soft: #353532; --panel-hover: #41413c; --border: #41413c; --border-strong: #606057; --text: #eeede7; --text-dim: #d4d1c6; --muted: #a6a397; --accent: #d58a66; --accent-soft: #d58a661c; --shadow: none; }
+.download-dock { flex: none; max-height: 160px; overflow: auto; padding: 8px 38px; border-bottom: 1px solid var(--border); }
+.download-summary { display: block; width: 100%; text-align: left; padding: 8px; border: 0; color: var(--text); background: var(--panel); cursor: pointer; }
+.download-summary span { display: inline-block; max-width: 50%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; vertical-align: middle; }
+.download-summary small { margin-left: 12px; color: var(--muted); }
+.platform-group { margin: 18px 0; min-width: 0; }
+.platform-group h3 { font-size: 14px; color: var(--accent); }
+.platform-group h3 small { color: var(--muted); }
+.collection-form, .collection-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 0; }
+.collection-form input, .collection-form select { flex: 1 1 140px; min-width: 0; padding: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
+.collection-row { border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.collection-row > :first-child { flex: 1 1 200px; min-width: 0; }
 html[data-theme="light"] { --bg: #faf9f5; --panel: #fff; --panel-solid: #faf9f5; --panel-soft: #f0eee6; --panel-hover: #ebe7db; --border: #e8e6dc; --border-strong: #d5cfc0; --text: #2f342d; --text-dim: #514e44; --muted: #878274; --accent: #b96b49; --accent-soft: #b96b4912; --shadow: none; }
 .app { display: grid; grid-template-columns: 206px minmax(0, 1fr); height: 100dvh; overflow: hidden; }
 .app-sidebar { display: flex; flex-direction: column; padding: 32px 16px 22px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 85%, var(--border)); }

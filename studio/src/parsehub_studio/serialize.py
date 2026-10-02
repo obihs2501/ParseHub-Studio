@@ -91,6 +91,8 @@ def result_to_payload(result: Any) -> dict[str, Any]:
         "raw_url": getattr(result, "raw_url", "") or "",
         "name": getattr(result, "name", ""),
         "author": getattr(result, "author", ""),
+        "author_id": getattr(result, "author_id", ""),
+        "published_at": getattr(result, "published_at", ""),
         "post_id": getattr(result, "post_id", ""),
         "media": media,
         "media_count": len(media),

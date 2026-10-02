@@ -4,6 +4,7 @@ import hashlib
 import re
 import string
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import parse_qs, urlparse
 
 TOKENS = {
@@ -12,6 +13,7 @@ TOKENS = {
     "title": "标题",
     "id": "作品 ID",
     "date": "下载日期",
+    "publish_date": "发布日期",
     "time": "下载时间",
     "index": "媒体序号",
     "type": "媒体类型",
@@ -54,6 +56,29 @@ def safe_name(value: str, limit: int = 100) -> str:
     return value
 
 
+def publication_date(value, timezone) -> str:
+    try:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if value <= 0:
+                return "未知发布日期"
+            published = datetime.fromtimestamp(value / 1000 if value > 100_000_000_000 else value, tz=timezone)
+        elif isinstance(value, str) and value.strip():
+            value = value.strip()
+            if value.isdigit():
+                return publication_date(int(value), timezone)
+            try:
+                published = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                published = parsedate_to_datetime(value)
+            if published.tzinfo:
+                published = published.astimezone(timezone)
+        else:
+            return "未知发布日期"
+        return published.strftime("%Y-%m-%d")
+    except (ValueError, TypeError, OverflowError, OSError):
+        return "未知发布日期"
+
+
 def naming_values(payload: dict, now: datetime | None = None) -> dict:
     now = now or datetime.now(UTC).astimezone()
     raw = payload.get("raw_url") or ""
@@ -70,6 +95,7 @@ def naming_values(payload: dict, now: datetime | None = None) -> dict:
         "title": safe_name(title, 40),
         "id": safe_name(str(post_id), 32),
         "date": now.strftime("%Y-%m-%d"),
+        "publish_date": publication_date(payload.get("published_at"), now.tzinfo),
         "time": now.strftime("%H%M%S"),
         "index": 1,
         "type": payload.get("type_label") or "图片",

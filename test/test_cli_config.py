@@ -1,6 +1,9 @@
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from parsehub.cli_config import AutoCookieStore, ConfigStore, FileCookieStore
 
@@ -26,14 +29,20 @@ class TestCliConfig(unittest.TestCase):
         self.assertIsNone(config.parse_proxy)
         self.assertEqual(config.download_proxy, "http://download")
 
-    def test_auto_cookie_store_uses_private_file(self):
+    def test_auto_cookie_store_persists_and_requests_private_permissions(self):
         path = self.base / "cookies.toml"
         store = AutoCookieStore(file_store=FileCookieStore(path))
 
-        store.set("xhs", "a=b")
+        with patch.object(Path, "chmod", autospec=True, side_effect=Path.chmod) as chmod:
+            store.set("xhs", "a=b")
+        chmod.assert_called_once_with(path, 0o600)
 
         self.assertEqual(store.get("xhs"), "a=b")
-        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        if os.name == "posix":
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        else:
+            self.assertTrue(path.stat().st_mode & stat.S_IREAD)
+            self.assertTrue(path.stat().st_mode & stat.S_IWRITE)
 
     def test_auto_cookie_store_deletes_private_file_cookie(self):
         path = self.base / "cookies.toml"

@@ -39,7 +39,7 @@ jobs:
       - run: node tests/frontend_test.cjs
       - run: uv run python tests/smoke_test.py
       - run: uv run python -m unittest discover -s tests -p "test_*.py" -v
-      - run: uv run python -m unittest discover -s ../test -p "test_core_offline.py" -v
+      - run: uv run python -m unittest discover -s ../test -p "test_*.py" -v
       - run: uv run python tests/sidecar_check.py
 
   windows:
@@ -74,6 +74,13 @@ jobs:
           uv sync --locked --group build
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm ci
+      - name: Test Windows compatibility before packaging
+        run: |
+          uv run python -m unittest discover -s ../test -p "test_*.py" -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run python -m unittest discover -s tests -p "test_*.py" -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node tests/frontend_test.cjs
       - name: Build Python sidecar
         run: |
           uv run python packaging/make_icon.py
@@ -166,6 +173,9 @@ jobs:
             - Mixed-platform batch parsing (50 links, 3 concurrent), per-item results, cancellation and retry.
             - Original-resolution image viewer: zoom, pan, 1:1, fit, rotate and keyboard navigation.
             - Element-based folder/file naming with previews, safe filenames and collision protection.
+            - Publication-date naming token, platform-grouped results/history, and persistent current-file download progress.
+            - Per-platform Cookie pools with rotation and manual parser-site bookmarks; credentials are never sent to bookmarked sites.
+            - Resolution, author and post information; improved Weibo history covers and Windows compatibility tests.
             - Highest available Douyin variant; optional isolated KuKuTool web window with manual link entry (no automatic result import).
             - Weibo image CDN failover without lowering download quality; Douyin short-link redirect fix.
             - Reduced false service-disconnection alerts and non-blocking proxy/metadata work.

@@ -125,7 +125,7 @@ function formatTime(ts) {
 
 function proxied(url, options = {}) {
   const params = new URLSearchParams({ src: url });
-  const referer = state.result && state.result.raw_url;
+  const referer = options.referer || (state.result && state.result.raw_url);
   if (referer) params.set('referer', referer);
   if (options.download) {
     params.set('download', '1');
@@ -238,6 +238,7 @@ function tileMarkup(item, index) {
   const source = previewSource(item);
   const tileState = source ? 'loading' : 'blank';
   const badges = ['<span class="badge">' + esc(item.kind_label) + '</span>'];
+  if (item.kind === 'video') badges.push('<span class="badge">' + (item.width && item.height ? esc(item.width + ' × ' + item.height) : '分辨率未提供') + '</span>');
   if (item.kind === 'livephoto') badges.push('<span class="badge live">实况</span>');
   if (item.duration) badges.push('<span class="badge">' + formatDuration(item.duration) + '</span>');
   const play = item.kind === 'video'
@@ -359,6 +360,10 @@ function renderResult() {
       '<span class="tag">' + result.media_count + ' 个媒体</span>' +
       '<h2 class="result-title">' + esc(result.title || (result.content || '').trim().split('\n')[0].slice(0, 100) || '解析结果') + '</h2>' +
     '</div>' +
+    '<p class="result-meta">作者：' + esc(result.author || '平台未提供') +
+      (result.author_id ? ' · 作者 ID：' + esc(result.author_id) : '') +
+      ' · 作品 ID：' + esc(result.post_id || '未提供') +
+      (result.published_at ? ' · 发布时间：' + esc(typeof result.published_at === 'number' ? new Date(result.published_at * 1000).toLocaleString('zh-CN') : result.published_at) : '') + '</p>' +
     '<div class="result-toolbar">' +
       '<button class="btn primary" data-result-action="download-all">下载本作品</button>' +
       (result.raw_url ? '<button class="btn ghost" data-result-action="open-raw">打开原帖 ↗</button>' : '') +
@@ -386,6 +391,16 @@ function renderTasks() {
   const badge = $('#taskBadge');
   badge.hidden = running === 0;
   badge.textContent = String(running);
+  const dock = $('#downloadDock');
+  if (dock) {
+    dock.hidden = running === 0;
+    dock.innerHTML = state.tasks.filter((task) => ['running', 'pending'].includes(task.status)).map((task) =>
+      '<button class="download-summary" data-show-downloads><span>' + esc(task.title || task.text) + '</span><small>' +
+      esc(task.stage || '排队中') + ' · ' + (task.total ? Math.round(task.progress * 100) + '%' : '等待大小信息') +
+      (task.unit === 'bytes' ? ' · ' + formatBytes(task.current) + (task.total ? ' / ' + formatBytes(task.total) : '') : '') +
+      '</small><div class="progress ' + (!task.total ? 'indeterminate' : '') + '"><i style="width:' +
+      (task.total ? Math.min(100, Math.round(task.progress * 100)) : 40) + '%"></i></div></button>').join('');
+  }
 
   if (!state.tasks.length) {
     box.innerHTML = '<div class="side-empty">还没有下载任务<br />解析后点击「解析并下载」</div>';
@@ -393,7 +408,7 @@ function renderTasks() {
   }
 
   const labels = { pending: '排队中', running: '进行中', success: '已完成', partial: '部分完成', error: '失败', cancelled: '已取消' };
-  box.innerHTML = state.tasks
+  box.innerHTML = '<p class="desc">本次运行的下载队列：查看进度、取消任务、打开文件夹。解析历史单独保存作品。</p>' + state.tasks
     .map((task) => {
       const label = labels[task.status] || task.status;
       const percent = Math.round((task.progress || 0) * 100);
@@ -419,7 +434,7 @@ function renderTasks() {
       return '<div class="task-item">' +
         '<div class="task-top">' +
           '<span class="task-title" title="' + esc(task.text) + '">' + esc(task.title || task.text) + '</span>' +
-          '<span class="status-pill ' + task.status + '">' + label + '</span>' +
+          '<span class="status-pill ' + task.status + '">' + label + (task.total ? ' · ' + percent + '%' : '') + '</span>' +
         '</div>' +
         '<div class="progress ' + (indeterminate ? 'indeterminate' : '') + '"><i style="width:' + (indeterminate ? 40 : percent) + '%"></i></div>' +
         '<div class="task-sub">' + detail + actions.join('') + '</div>' +
@@ -479,13 +494,12 @@ function renderHistory() {
     box.innerHTML = '<div class="side-empty">暂时没有历史记录<br />成功解析过的内容会出现在这里</div>';
     return;
   }
-  box.innerHTML = state.history
-    .map((entry) => {
-      const thumb = entry.media && entry.media.length ? entry.media[0] : null;
-      const source = thumb ? thumb.thumb_url || (thumb.kind === 'video' ? '' : thumb.url) : '';
+  box.innerHTML = '<p class="desc">已解析作品档案，按平台整理；不表示文件已下载。点击作品可预览或重新解析过期链接。</p>' + groupedMarkup(state.history, (entry) => entry.platform && entry.platform.name, (entry) => {
+      const thumb = (entry.media || []).find((media) => media.preview_url || media.thumb_url || media.kind !== 'video');
+      const source = thumb ? thumb.preview_url || thumb.thumb_url || (thumb.kind === 'video' ? '' : thumb.url) : '';
       const icon = '<span>' + (thumb ? (thumb.kind === 'video' ? 'VID' : 'IMG') : 'TXT') + '</span>';
       const cover = source
-        ? '<img data-src="' + esc(source) + '" src="' + esc(source) + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover" referrerpolicy="no-referrer" />'
+        ? '<img data-history-cover="1" data-referer="' + esc(entry.raw_url || '') + '" data-alternate="' + esc(thumb.kind !== 'video' ? thumb.url : '') + '" src="' + esc(proxied(source, { referer: entry.raw_url })) + '" alt="作品封面" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover" referrerpolicy="no-referrer" />'
         : icon;
       return '<div class="hist-item" data-id="' + esc(entry.id) + '">' +
         '<div class="hist-thumb">' + cover + '</div>' +
@@ -495,8 +509,7 @@ function renderHistory() {
         '</div>' +
         '<button class="icon-btn" data-history-action="delete" data-id="' + esc(entry.id) + '" title="删除记录" style="width:28px;height:28px">&times;</button>' +
       '</div>';
-    })
-    .join('');
+    });
 }
 
 async function loadHistory() {
@@ -908,7 +921,6 @@ function bindModalEvents() {
       $('#stabGeneral').hidden = name !== 'general';
       $('#stabNaming').hidden = name !== 'naming';
       $('#stabProxy').hidden = name !== 'proxy';
-      $('#stabCookie').hidden = name !== 'cookie';
       $('#stabAbout').hidden = name !== 'about';
     }),
   );
@@ -1075,6 +1087,15 @@ function bindMediaFallback() {
   document.addEventListener('error', (event) => {
     const node = event.target;
     if (!(node instanceof HTMLImageElement) && !(node instanceof HTMLVideoElement)) return;
+    if (node.dataset.historyCover) {
+      if (node.dataset.alternate && !node.dataset.retried) {
+        node.dataset.retried = '1';
+        node.src = proxied(node.dataset.alternate, { referer: node.dataset.referer });
+      } else {
+        node.parentElement.textContent = '封面失效';
+      }
+      return;
+    }
     const direct = node.dataset && node.dataset.src;
     if (direct && node.dataset.fallback !== '1') {
       node.dataset.fallback = '1';
@@ -1170,13 +1191,25 @@ function renderBatch() {
   panel.innerHTML = '<div class="batch-head"><h2>本次解析 · ' + completed + ' / ' + batch.items.length + (failed ? ' · ' + failed + ' 条失败' : '') + '</h2>' +
     (batch.status === 'running' ? '<button class="btn tiny ghost" data-batch-action="cancel">取消未完成</button>' :
       (failed ? '<button class="btn tiny" data-batch-action="retry">重试失败项</button>' : '<span class="desc">点击卡片切换作品</span>')) + '</div>' +
-    '<div class="batch-list">' + batch.items.map((item, index) => {
+    groupedMarkup(batch.items, (item) => item.result && item.result.platform && item.result.platform.name, (item) => {
+      const index = batch.items.indexOf(item);
       const title = item.result && (item.result.title || item.result.content || '').split('\n')[0];
       const status = { pending: '排队中', running: '正在解析…', success: '解析完成', error: '解析失败', cancelled: '已取消' }[item.status];
       const platform = item.result && item.result.platform;
       return '<button class="batch-item' + (state.selectedItem === item.id ? ' active' : '') + '" data-batch-item="' + item.id + '" data-status="' + item.status + '" title="' + esc(item.error || item.url) + '">' +
         '<strong>' + (index + 1) + '. ' + esc(title || item.url) + '</strong><small>' + esc(item.error || ((platform ? platform.name + ' · ' : '') + status)) + '</small></button>';
-    }).join('') + '</div>';
+    }, 'batch-list');
+}
+
+function groupedMarkup(items, keyFor, render, className = '') {
+  const groups = new Map();
+  items.forEach((item) => {
+    const key = keyFor(item) || '待识别 / 未知平台';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+  return Array.from(groups, ([name, entries]) => '<section class="platform-group"><h3>' + esc(name) +
+    ' <small>' + entries.length + '</small></h3><div class="' + className + '">' + entries.map(render).join('') + '</div></section>').join('');
 }
 
 async function refreshBatch() {
@@ -1205,6 +1238,8 @@ async function refreshBatch() {
 }
 
 function bindWorkspaceEvents() {
+  bindCollections();
+  $('#downloadDock').addEventListener('click', () => setView('tasks'));
   $$('.nav-item[data-view]').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
   $('#aboutBtn').addEventListener('click', () => { $('#settingsBtn').click(); $('[data-stab="about"]').click(); });
   $('#externalParserBtn').addEventListener('click', () => {
@@ -1224,11 +1259,91 @@ function bindWorkspaceEvents() {
   });
 }
 
+function bindCollections() {
+  document.body.insertAdjacentHTML('beforeend',
+    '<div class="modal" id="cookiePoolModal" hidden role="dialog" aria-modal="true" aria-labelledby="cookiePoolTitle"><div class="modal-card wide"><div class="modal-head"><h3 id="cookiePoolTitle">Cookie 池</h3><button class="icon-btn" data-collection-close="cookiePoolModal" aria-label="关闭">×</button></div><div class="modal-body"><p class="desc">按平台轮换已启用账户，每次解析使用一个 Cookie；不自动重试登录失败，不绕过平台风控。Cookie 仅保存在本机配置文件中（明文），请勿分享。没有启用的池条目时使用下方 CLI 默认 Cookie。</p><div id="poolContent"></div><details><summary>兼容设置：CLI 默认 Cookie</summary><div id="legacyCookieHost"></div></details></div></div></div>' +
+    '<div class="modal" id="bookmarksModal" hidden role="dialog" aria-modal="true" aria-labelledby="bookmarksTitle"><div class="modal-card wide"><div class="modal-head"><h3 id="bookmarksTitle">解析网站收藏</h3><button class="icon-btn" data-collection-close="bookmarksModal" aria-label="关闭">×</button></div><div class="modal-body"><p class="desc">仅收藏网页，使用外部浏览器打开。需手动粘贴链接；不会传送本地 Cookie 或自动导入结果。</p><form id="bookmarkForm" class="collection-form"><input name="name" required maxlength="100" placeholder="网站名称" aria-label="网站名称"><input name="url" type="url" required maxlength="2000" placeholder="https://…" aria-label="网站地址"><input name="group" maxlength="100" placeholder="分组，例如抖音 / 通用" aria-label="收藏分组"><button class="btn primary" type="submit">保存收藏</button><button class="btn ghost" type="reset">取消编辑</button></form><div id="bookmarkList"></div></div></div></div>');
+  $('[data-stab="cookie"]').remove();
+  $('#legacyCookieHost').appendChild($('#stabCookie'));
+  $('#stabCookie').hidden = false;
+  $$('[data-collection-close]').forEach((button) => button.addEventListener('click', () => { $('#' + button.dataset.collectionClose).hidden = true; }));
+  $('#cookiePoolBtn').addEventListener('click', async () => {
+    try { await loadPlatforms(); renderCookiePool(); renderSettingsCookie(); $('#cookiePoolModal').hidden = false; }
+    catch (error) { toast(error.message, 'err'); }
+  });
+  $('#bookmarksBtn').addEventListener('click', () => { renderBookmarks(); $('#bookmarksModal').hidden = false; });
+  $('#bookmarkForm').addEventListener('reset', () => { delete $('#bookmarkForm').dataset.edit; });
+  $('#bookmarkForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const entry = { name: form.elements.name.value.trim(), url: form.elements.url.value.trim(), group: form.elements.group.value.trim() || '通用' };
+    const entries = [...(state.settings.bookmarks || [])];
+    if (form.dataset.edit !== undefined) entries[Number(form.dataset.edit)] = entry;
+    else entries.push(entry);
+    try {
+      state.settings = await api('/api/settings', { method: 'POST', body: { bookmarks: entries } });
+      form.reset(); renderBookmarks(); toast('收藏已保存', 'ok');
+    } catch (error) { toast(error.message, 'err'); }
+  });
+  $('#bookmarkList').addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-bookmark]');
+    if (!button) return;
+    const index = Number(button.dataset.index);
+    const entries = [...(state.settings.bookmarks || [])];
+    const entry = entries[index];
+    if (!entry) return;
+    if (button.dataset.bookmark === 'open') return openExternal(entry.url);
+    if (button.dataset.bookmark === 'edit') {
+      const form = $('#bookmarkForm');
+      form.dataset.edit = String(index);
+      ['name', 'url', 'group'].forEach((key) => { form.elements[key].value = entry[key]; });
+      form.elements.name.focus();
+      return;
+    }
+    try {
+      entries.splice(index, 1);
+      state.settings = await api('/api/settings', { method: 'POST', body: { bookmarks: entries } });
+      $('#bookmarkForm').reset(); renderBookmarks();
+    } catch (error) { toast(error.message, 'err'); }
+  });
+}
+
+function renderBookmarks() {
+  const entries = state.settings.bookmarks || [];
+  $('#bookmarkList').innerHTML = groupedMarkup(entries, (entry) => entry.group || '通用', (entry) => {
+    const index = entries.indexOf(entry);
+    return '<div class="collection-row"><div><strong>' + esc(entry.name) + '</strong><p class="desc">' + esc(entry.url) + '</p></div>' +
+      ['open', 'edit', 'delete'].map((action, position) => '<button class="btn tiny" data-bookmark="' + action + '" data-index="' + index + '">' + ['打开 ↗', '编辑 / 分组', '删除'][position] + '</button>').join('') + '</div>';
+  }) || '<p class="desc">还没有收藏，请添加解析网站。</p>';
+}
+
+function renderCookiePool() {
+  const content = $('#poolContent');
+  content.innerHTML = '<form id="poolForm" class="collection-form"><select name="platform" aria-label="Cookie 所属平台">' + state.platforms.map((item) => '<option value="' + esc(item.id) + '">' + esc(item.name) + '</option>').join('') +
+    '</select><input name="name" maxlength="100" placeholder="账户备注" aria-label="账户备注"><input name="cookie" type="password" autocomplete="off" required placeholder="粘贴 Cookie" aria-label="Cookie"><button class="btn primary">加入池</button></form>' +
+    state.platforms.filter((item) => (item.cookie_pool || []).length).map((item) => '<section class="platform-group"><h3>' + esc(item.name) + '</h3>' + item.cookie_pool.map((entry) =>
+      '<div class="collection-row"><span>' + esc(entry.name) + ' · ' + esc(entry.hint) + '</span><button class="btn tiny" data-pool-id="' + esc(entry.id) + '" data-platform="' + esc(item.id) + '" data-enabled="' + !entry.enabled + '">' + (entry.enabled ? '已启用 · 点击停用' : '已停用 · 点击启用') + '</button><button class="btn tiny ghost" data-pool-id="' + esc(entry.id) + '" data-platform="' + esc(item.id) + '">删除</button></div>').join('') + '</section>').join('');
+  $('#poolForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      await api('/api/config/cookie-pool', { method: 'POST', body: { platform: form.elements.platform.value, name: form.elements.name.value, cookie: form.elements.cookie.value } });
+      await loadPlatforms(); renderCookiePool(); toast('已加入 Cookie 池', 'ok');
+    } catch (error) { toast(error.message, 'err'); }
+  });
+  $$('[data-pool-id]', content).forEach((button) => button.addEventListener('click', async () => {
+    try {
+      await api('/api/config/cookie-pool', { method: 'POST', body: { platform: button.dataset.platform, entry_id: button.dataset.poolId, enabled: button.dataset.enabled === undefined ? null : button.dataset.enabled === 'true' } });
+      await loadPlatforms(); renderCookiePool();
+    } catch (error) { toast(error.message, 'err'); }
+  }));
+}
+
 function renderSettingsNaming() {
-  const names = { platform: '平台', author: '作者', title: '标题', id: '作品 ID', date: '下载日期', time: '下载时间', 'index:03d': '序号 001', type: '媒体类型' };
+  const names = { platform: '平台', author: '作者', title: '标题', id: '作品 ID', publish_date: '发布日期', date: '下载日期', time: '下载时间', 'index:03d': '序号 001', type: '媒体类型' };
   $('#stabNaming').innerHTML = '<div class="field"><label for="folderTemplate">作品文件夹</label><input type="text" maxlength="200" spellcheck="false" id="folderTemplate" value="' + esc(state.settings.folder_template || '{platform}_{title}_{id}') + '" /></div>' +
     '<div class="field"><label for="fileTemplate">媒体文件名</label><input type="text" maxlength="200" spellcheck="false" id="fileTemplate" value="' + esc(state.settings.file_template || '{index:03d}_{title}') + '" /></div>' +
-    '<p class="desc">先点选输入框，再点击元素插入。扩展名自动保留；不支持目录分隔符。作者由平台返回，缺失时使用“未知作者”。日期/时间指下载时间。</p>' +
+    '<p class="desc">先点选输入框，再点击元素插入。扩展名自动保留；不支持目录分隔符。作者缺失时使用“未知作者”。发布日期格式为 YYYY-MM-DD，带时区的时间按本机时区转换；平台未提供时使用“未知发布日期”，不会用下载日期冒充。</p>' +
     '<div class="naming-elements">' + Object.entries(names).map(([key, label]) => '<button class="btn tiny" data-token="' + key + '">' + label + '</button>').join('') + '</div>' +
     '<div class="naming-preview" id="namingPreview" role="status"></div><p class="desc">标题最多 40 字，生成名称最多 100 字；非法字符自动替换，重名加序号，不覆盖已有文件。实况视频额外加 _live。</p>' +
     '<button class="btn primary" id="saveNaming">保存命名规则</button>';

@@ -18,6 +18,15 @@ const source = fs.readFileSync(path.join(__dirname, '../src/parsehub_studio/web/
 vm.runInContext(source.slice(0, source.lastIndexOf('\ninit().catch')), context);
 
 async function main() {
+  assert.equal(vm.runInContext("groupedMarkup([{p:'微博',v:'one'},{p:'抖音',v:'two'},{p:'微博',v:'three'}], item=>item.p, item=>item.v).includes('onethree')", context), true);
+  assert.ok(vm.runInContext("tileMarkup({kind:'video',kind_label:'视频',width:1920,height:1080},0)", context).includes('1920 × 1080'));
+  vm.runInContext("state.result={raw_url:'https://douyin.com/wrong'};state.history=[{id:'h1',platform:{name:'微博'},raw_url:'https://weibo.com/right',media:[{kind:'image',url:'https://example.com/original.jpg',preview_url:'https://example.com/preview.jpg'}]}];renderHistory()", context);
+  assert.ok(element('#tabHistory').innerHTML.includes('preview.jpg'));
+  assert.ok(element('#tabHistory').innerHTML.includes('weibo.com%2Fright'));
+  assert.ok(!element('#tabHistory').innerHTML.includes('douyin.com'));
+  vm.runInContext("state.tasks=[{id:'t1',status:'running',text:'test',stage:'当前文件下载中',current:50,total:100,unit:'bytes',progress:0.5}];renderTasks()", context);
+  assert.equal(element('#downloadDock').hidden, false);
+  assert.ok(element('#downloadDock').innerHTML.includes('50%'));
   assert.equal(vm.runInContext("previewSource({kind:'image', url:'original', thumb_url:'tiny', preview_url:'hd'})", context), 'hd');
   vm.runInContext('state.previewMode = false', context);
   assert.equal(vm.runInContext("previewSource({kind:'image', url:'original', thumb_url:'tiny', preview_url:'hd'})", context), 'original');

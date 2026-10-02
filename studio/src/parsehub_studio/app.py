@@ -33,7 +33,7 @@ from .network import resolve_default_proxy
 from .platform_config import PlatformConfigBridge
 from .security import install_security
 from .serialize import result_to_payload
-from .settings import Settings, SettingsStore
+from .settings import Bookmark, Settings, SettingsStore
 from .tasks import TaskManager
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -91,11 +91,20 @@ class CookieRequest(StrictModel):
     cookie: str
 
 
+class PoolRequest(StrictModel):
+    platform: str
+    cookie: str = Field(default="", max_length=65536)
+    name: str = Field(default="", max_length=100)
+    entry_id: str = ""
+    enabled: bool | None = None
+
+
 class PathRequest(StrictModel):
     path: str
 
 
 class SettingsPayload(StrictModel):
+    bookmarks: list[Bookmark] | None = Field(default=None, max_length=200)
     default_save_dir: Path | None = None
     connections: int | None = Field(default=None, ge=1, le=32)
     save_metadata: bool | None = None
@@ -309,7 +318,7 @@ def create_app(session_token: str | None = None) -> FastAPI:
     @app.post("/api/naming/preview")
     async def preview_naming(payload: NamingRequest):
         values = naming_values({"platform": {"name": "抖音"}, "author": "示例作者", "title": "山间日落",
-                                "post_id": "7691874698522529051"})
+                                "post_id": "7691874698522529051", "published_at": "2026-09-28"})
         try:
             return {"folder": render_name(payload.folder_template, values),
                     "file": render_name(payload.file_template, values) + ".jpg", "tokens": TOKENS}
@@ -392,6 +401,19 @@ def create_app(session_token: str | None = None) -> FastAPI:
     async def clear_cookie(request: Request, payload: CookieRequest) -> dict[str, Any]:
         context = ctx(request)
         context.bridge.clear_cookie(payload.platform)
+        return context.bridge.describe(payload.platform)
+
+    @app.post("/api/config/cookie-pool")
+    async def update_cookie_pool(request: Request, payload: PoolRequest) -> dict:
+        context = ctx(request)
+        if payload.platform not in {item["id"] for item in context.parsehub.get_platforms()}:
+            raise HTTPException(status_code=400, detail="未知平台")
+        if payload.entry_id:
+            context.bridge.change_cookie(payload.platform, payload.entry_id, payload.enabled)
+        elif payload.cookie.strip():
+            context.bridge.add_cookie(payload.platform, payload.cookie.strip(), payload.name.strip())
+        else:
+            raise HTTPException(status_code=400, detail="Cookie 不能为空")
         return context.bridge.describe(payload.platform)
 
     # ---------------------------------------------------------------- 设置

@@ -17,6 +17,8 @@
         <button class="nav-item active" data-view="parse" aria-current="page"><span>⌕</span> 解析工作台</button>
         <button class="nav-item" data-view="tasks"><span>↓</span> 下载管理 <span id="taskBadge" class="badge" hidden></span></button>
         <button class="nav-item" data-view="history"><span>◷</span> 历史记录</button>
+        <button class="nav-item" id="cookiePoolBtn"><span>▣</span> Cookie 池</button>
+        <button class="nav-item" id="bookmarksBtn"><span>☆</span> 解析网站收藏</button>
       </nav>
       <div class="sidebar-bottom">
         <button class="nav-item" id="settingsBtn"><span>⚙</span> 设置</button>
@@ -30,6 +32,7 @@
         <div class="header-actions"><span class="service-status" id="serviceStatus" role="status">连接中…</span><button class="icon-btn" id="themeBtn" title="切换主题" aria-label="切换主题">◐</button></div>
       </header>
       <div class="service-alert" id="serviceAlert" role="alert" hidden></div>
+      <div id="downloadDock" class="download-dock" aria-live="polite" hidden></div>
       <main class="layout" id="workspaceScroll" tabindex="0" aria-label="可滚动内容区">
         <section class="column-main">
           <div class="panel input-panel">

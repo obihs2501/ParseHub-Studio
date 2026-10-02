@@ -95,6 +95,8 @@ class DouyinParser(BaseParser):
             case DouyinMediaType.IMAGE:
                 parsed = self._build_image_result(result)
         parsed.author = result.author
+        parsed.author_id = result.author_id
+        parsed.published_at = result.published_at
         parsed.post_id = result.post_id
         return parsed
 
@@ -260,6 +262,8 @@ class DouyinApiResult:
     desc: str = ""
     image_list: list[ImageRef | LivePhotoRef] = field(default_factory=list)
     author: str = ""
+    author_id: str = ""
+    published_at: int | str = ""
     post_id: str = ""
 
     @classmethod
@@ -277,6 +281,8 @@ class DouyinApiResult:
         else:
             result = cls._parse_video(data, desc)
         result.author = (data.get("author") or {}).get("nickname") or ""
+        result.author_id = str((data.get("author") or {}).get("uid") or "")
+        result.published_at = data.get("create_time") or ""
         result.post_id = str(data.get("aweme_id") or "")
         return result
 

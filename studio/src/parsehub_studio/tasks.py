@@ -14,9 +14,9 @@ from parsehub import ParseHub
 from parsehub.errors import ParseError, UnknownPlatform
 from parsehub.types import LivePhotoRef, MultimediaParseResult
 
+from .naming import DEFAULT_FILE, DEFAULT_FOLDER, apply_naming
 from .platform_config import PlatformConfigBridge
 from .serialize import result_to_payload
-from .naming import apply_naming, DEFAULT_FILE, DEFAULT_FOLDER
 
 FINISHED_STATUSES = {"success", "partial", "error", "cancelled"}
 
@@ -245,7 +245,7 @@ class TaskManager:
             task.total = int(total)
             task.unit = str(unit)
             task.progress = (current / total) if total else 0.0
-            task.stage = "下载媒体" if unit == "bytes" else f"下载媒体 {current}/{total}"
+            task.stage = "当前文件下载中" if unit == "bytes" else f"已下载媒体 {current}/{total}"
 
         download_result = await result.download(
             path=options.get("path"),

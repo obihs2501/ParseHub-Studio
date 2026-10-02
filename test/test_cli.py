@@ -263,8 +263,8 @@ class TestCli(unittest.TestCase):
             )
 
         self.assertEqual(code, 0)
-        self.assertIn("下载完成: /tmp/parsehub-output", stdout)
-        self.assertIn("/tmp/parsehub-output/0.mp4", stdout)
+        self.assertIn(f"下载完成: {Path('/tmp/parsehub-output')}", stdout)
+        self.assertIn(str(Path("/tmp/parsehub-output/0.mp4")), stdout)
         self.assertIn("解析中...", stderr)
         self.assertIn("下载中", stderr)
         call = FakeParseHub.instances[0].download_calls[0]
@@ -284,8 +284,8 @@ class TestCli(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("解析中...", stderr)
         data = json.loads(stdout)
-        self.assertEqual(data["output_dir"], "/tmp/parsehub-output")
-        self.assertEqual(data["media"]["path"], "/tmp/parsehub-output/0.mp4")
+        self.assertEqual(data["output_dir"], str(Path("/tmp/parsehub-output")))
+        self.assertEqual(data["media"]["path"], str(Path("/tmp/parsehub-output/0.mp4")))
         self.assertEqual(FakeParseHub.instances[0].download_calls[0]["path"], "./out")
 
     def test_download_quiet_suppresses_feedback_and_progress_callback(self):
@@ -294,7 +294,7 @@ class TestCli(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
-        self.assertIn("下载完成: /tmp/parsehub-output", stdout)
+        self.assertIn(f"下载完成: {Path('/tmp/parsehub-output')}", stdout)
         self.assertIsNone(FakeParseHub.instances[0].download_calls[0]["callback"])
 
     def test_download_no_progress_keeps_status_but_disables_callback(self):
@@ -302,7 +302,7 @@ class TestCli(unittest.TestCase):
             code, stdout, stderr = self.run_cli(["download", "https://example.com/post/1", "--no-progress"])
 
         self.assertEqual(code, 0)
-        self.assertIn("下载完成: /tmp/parsehub-output", stdout)
+        self.assertIn(f"下载完成: {Path('/tmp/parsehub-output')}", stdout)
         self.assertIn("解析中...", stderr)
         self.assertNotIn("下载中", stderr)
         self.assertIsNone(FakeParseHub.instances[0].download_calls[0]["callback"])
