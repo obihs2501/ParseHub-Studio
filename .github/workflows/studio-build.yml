@@ -85,7 +85,7 @@ jobs:
       - name: Test frozen sidecar (no Python imports from source)
         run: uv run python tests/sidecar_check.py --executable dist/parsehub-sidecar.exe
       - name: Build Tauri NSIS installer
-        run: npm run desktop:build -- --target x86_64-pc-windows-msvc --locked
+        run: npm run desktop:build -- --target x86_64-pc-windows-msvc -- --locked
       - name: Prepare portable app
         run: |
           New-Item -ItemType Directory -Force dist/ParseHubStudio-portable/resources | Out-Null
