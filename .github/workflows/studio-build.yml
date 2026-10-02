@@ -66,6 +66,7 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: studio/src-tauri -> target
+          cache-on-failure: true
       - name: Install locked dependencies
         run: |
           uv sync --locked --group build
@@ -120,10 +121,11 @@ jobs:
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe release/
           Compress-Archive -Path dist/ParseHubStudio-portable -DestinationPath release/ParseHubStudio-windows-x64-portable.zip
-          Get-ChildItem -LiteralPath release -File | ForEach-Object {
+          $checksums = Get-ChildItem -LiteralPath release -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object {
             $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
             "$($hash.Hash.ToLower())  $($_.Name)"
-          } | Out-File -Encoding utf8 release/SHA256SUMS.txt
+          }
+          $checksums | Out-File -Encoding utf8 release/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: ParseHubStudio-windows-x64
@@ -131,17 +133,25 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: rust-lockfile
           path: studio/src-tauri/Cargo.lock
+      - name: Collect build diagnostics
+        if: failure()
+        run: |
+          New-Item -ItemType Directory -Force dist/diagnostics | Out-Null
+          $log = Join-Path $env:LOCALAPPDATA 'io.github.obihs2501.parsehubstudio/sidecar.log'
+          if (Test-Path -LiteralPath $log) { Copy-Item -LiteralPath $log -Destination dist/diagnostics/ }
+          Get-ChildItem build -Recurse -Filter 'warn-*.txt' -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination dist/diagnostics/
+          }
       - name: Upload build diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-diagnostics
-          path: |
-            studio/build/parsehub_studio/warn-*.txt
-            ~/AppData/Local/io.github.obihs2501.parsehubstudio/sidecar.log
+          path: studio/dist/diagnostics/
 
   release:
     name: Publish tested Windows binaries

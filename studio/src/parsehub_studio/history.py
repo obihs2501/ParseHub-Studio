@@ -35,6 +35,8 @@ class HistoryStore:
     def add(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = self._slim(payload)
         entries = self.load()
+        if entry.get("raw_url"):
+            entries = [item for item in entries if item.get("raw_url") != entry["raw_url"]]
         entries.insert(0, entry)
         self._write(entries[: self.limit])
         return entry

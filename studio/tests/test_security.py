@@ -22,6 +22,7 @@ class SecurityTests(unittest.TestCase):
         for path in ("/", "/app.js", "/api/config", "/api/health", "/api/fs/list", "/api/media?src=https://example.com"):
             self.assertEqual(self.client.get(path).status_code, 401, path)
         self.assertEqual(self.client.get("/desktop?token=wrong").status_code, 401)
+        self.assertEqual(self.client.get("/desktop", params={"token": "无效令牌"}).status_code, 401)
 
     def test_bootstrap_cookie_and_security_headers(self):
         response = self.login()

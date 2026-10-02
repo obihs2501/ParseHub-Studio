@@ -150,6 +150,10 @@ class TaskManager:
         if running is None or running.done():
             return False
         running.cancel()
+        task = self._tasks[task_id]
+        task.status = "cancelled"
+        task.stage = "已取消"
+        task.finished_at = time.time()
         return True
 
     def clear_finished(self) -> None:

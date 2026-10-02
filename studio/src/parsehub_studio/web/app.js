@@ -778,6 +778,7 @@ async function doParse() {
       body: { text, use_saved_config: $('#useSavedConfig').checked },
     });
     highlightPlatform((state.result.platform && state.result.platform.id) || null);
+    await loadHistory();
   } catch (error) {
     state.result = null;
     toast(error.message, 'err', 6000);

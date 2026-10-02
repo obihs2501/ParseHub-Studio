@@ -21,7 +21,7 @@ def install_security(app: FastAPI, session_token: str | None) -> None:
         if session_token:
             if request.url.path == "/desktop" and request.method == "GET":
                 supplied = request.query_params.get("token", "")
-                if not secrets.compare_digest(supplied, session_token):
+                if not secrets.compare_digest(supplied.encode(), session_token.encode()):
                     return JSONResponse({"detail": "无效的桌面会话"}, status_code=401)
                 response = RedirectResponse("/", status_code=303)
                 response.set_cookie(cookie_name, session_token, httponly=True, samesite="strict")
@@ -30,7 +30,7 @@ def install_security(app: FastAPI, session_token: str | None) -> None:
                 return response
             supplied = request.cookies.get(cookie_name, "")
             bearer = request.headers.get("authorization", "").removeprefix("Bearer ")
-            if not (secrets.compare_digest(supplied, session_token) or secrets.compare_digest(bearer, session_token)):
+            if not (secrets.compare_digest(supplied.encode(), session_token.encode()) or secrets.compare_digest(bearer.encode(), session_token.encode())):
                 return JSONResponse({"detail": "桌面会话已失效，请重新启动应用"}, status_code=401)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"

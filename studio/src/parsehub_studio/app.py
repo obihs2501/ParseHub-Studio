@@ -233,7 +233,9 @@ def create_app(session_token: str | None = None) -> FastAPI:
             raise HTTPException(status_code=502, detail=str(exc) or "解析失败") from exc
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
-        return result_to_payload(result)
+        result_payload = result_to_payload(result)
+        context.history.add(result_payload)
+        return result_payload
 
     # ---------------------------------------------------------------- 下载任务
     @app.get("/api/tasks")
