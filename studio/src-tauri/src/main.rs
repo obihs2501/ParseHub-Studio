@@ -91,8 +91,9 @@ fn main() {
             let navigation_handle = app.handle().clone();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("ParseHub Studio")
-                .inner_size(1440.0, 920.0)
-                .min_inner_size(960.0, 640.0)
+                .inner_size(1040.0, 680.0)
+                .min_inner_size(820.0, 560.0)
+                .center()
                 .on_navigation(move |url| {
                     let trusted = navigation_origin.lock().unwrap().as_ref().is_some_and(|origin| url.origin().ascii_serialization() == *origin);
                     if trusted && url.path() == "/external/douyin" {
@@ -104,7 +105,8 @@ fn main() {
                             } else {
                                 let result = WebviewWindowBuilder::new(&handle, "external-parser", WebviewUrl::External("https://dy.kukutool.com/".parse().unwrap()))
                                     .title("第三方解析 · kukutool（请手动粘贴链接）")
-                                    .inner_size(1100.0, 820.0)
+                                    .inner_size(1000.0, 680.0)
+                                    .center()
                                     .on_navigation(|destination| destination.scheme() == "https" || destination.as_str() == "about:blank")
                                     .build();
                                 if result.is_err() {

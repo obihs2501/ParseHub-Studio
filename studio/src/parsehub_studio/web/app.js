@@ -14,6 +14,7 @@ const state = {
   loading: false,
   tasks: [],
   history: [],
+  collapsedGroups: {},
   taskStatus: {},
   previewMode: true,
   quality: 'origin',
@@ -125,7 +126,7 @@ function formatTime(ts) {
 
 function proxied(url, options = {}) {
   const params = new URLSearchParams({ src: url });
-  const referer = options.referer || (state.result && state.result.raw_url);
+  const referer = options.referer !== undefined ? options.referer : (state.result && state.result.raw_url);
   if (referer) params.set('referer', referer);
   if (options.download) {
     params.set('download', '1');
@@ -408,7 +409,7 @@ function renderTasks() {
   }
 
   const labels = { pending: '排队中', running: '进行中', success: '已完成', partial: '部分完成', error: '失败', cancelled: '已取消' };
-  box.innerHTML = '<p class="desc">本次运行的下载队列：查看进度、取消任务、打开文件夹。解析历史单独保存作品。</p>' + state.tasks
+  box.innerHTML = '<p class="desc">下载队列 · ' + state.tasks.length + ' 个任务</p>' + state.tasks
     .map((task) => {
       const label = labels[task.status] || task.status;
       const percent = Math.round((task.progress || 0) * 100);
@@ -425,20 +426,22 @@ function renderTasks() {
           (task.total && task.unit === 'bytes' ? '<span>' + formatBytes(task.current) + ' / ' + formatBytes(task.total) + '</span>' : '');
       }
       const actions = [];
-      if ((task.status === 'success' || task.status === 'partial') && task.output_dir) {
+      if (!['pending', 'running'].includes(task.status) && task.output_dir) {
         actions.push('<button class="btn tiny ghost" data-task-action="reveal" data-id="' + task.id + '">打开目录</button>');
       }
       if (task.status === 'running' || task.status === 'pending') {
         actions.push('<button class="btn tiny ghost" data-task-action="cancel" data-id="' + task.id + '">取消</button>');
       }
-      return '<div class="task-item">' +
+      return '<div class="task-item task-card"><div class="task-thumb">' + coverMarkup(task.thumbnail, task.thumbnail_original, task.raw_url) + '</div><div class="task-body">' +
         '<div class="task-top">' +
-          '<span class="task-title" title="' + esc(task.text) + '">' + esc(task.title || task.text) + '</span>' +
+          '<span class="task-title" title="' + esc(task.text) + '">' + esc(task.title || '等待解析作品') + '</span>' +
           '<span class="status-pill ' + task.status + '">' + label + (task.total ? ' · ' + percent + '%' : '') + '</span>' +
         '</div>' +
+        '<div class="task-meta">' + esc(task.platform || '待识别平台') + ' · ' + esc(task.author || '未知作者') +
+          (task.post_id ? ' · 作品 ID：' + esc(task.post_id) : '') + '</div>' +
         '<div class="progress ' + (indeterminate ? 'indeterminate' : '') + '"><i style="width:' + (indeterminate ? 40 : percent) + '%"></i></div>' +
         '<div class="task-sub">' + detail + actions.join('') + '</div>' +
-      '</div>';
+      '</div></div>';
     })
     .join('');
 }
@@ -488,28 +491,41 @@ async function createTask({ text, mediaIndex = null, silent = false }) {
 
 /* ------------------------------------------------------------------ 历史 */
 
+function workTitle(entry) {
+  for (const field of ['title', 'content']) {
+    const text = String(entry[field] || '').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    if (text && !/^\d+$/.test(text) && text !== String(entry.post_id || '')) return text.slice(0, 100);
+  }
+  return '无标题作品';
+}
+
+function coverMarkup(source, alternate, referer) {
+  if (!source) return '<span>暂无封面</span>';
+  return '<img data-history-cover="1" data-referer="' + esc(referer || '') + '" data-alternate="' + esc(alternate || '') +
+    '" src="' + esc(proxied(source, { referer: referer || '' })) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />';
+}
+
 function renderHistory() {
   const box = $('#tabHistory');
   if (!state.history.length) {
     box.innerHTML = '<div class="side-empty">暂时没有历史记录<br />成功解析过的内容会出现在这里</div>';
     return;
   }
-  box.innerHTML = '<p class="desc">已解析作品档案，按平台整理；不表示文件已下载。点击作品可预览或重新解析过期链接。</p>' + groupedMarkup(state.history, (entry) => entry.platform && entry.platform.name, (entry) => {
+  box.innerHTML = '<p class="desc">解析历史 · 点击平台或博主可折叠，展开状态自动保存。旧记录缺少作者时，重新解析原帖可更新。</p>' + groupedMarkup(state.history, (entry) => entry.platform && entry.platform.name, (entry) => {
       const thumb = (entry.media || []).find((media) => media.preview_url || media.thumb_url || media.kind !== 'video');
       const source = thumb ? thumb.preview_url || thumb.thumb_url || (thumb.kind === 'video' ? '' : thumb.url) : '';
-      const icon = '<span>' + (thumb ? (thumb.kind === 'video' ? 'VID' : 'IMG') : 'TXT') + '</span>';
-      const cover = source
-        ? '<img data-history-cover="1" data-referer="' + esc(entry.raw_url || '') + '" data-alternate="' + esc(thumb.kind !== 'video' ? thumb.url : '') + '" src="' + esc(proxied(source, { referer: entry.raw_url })) + '" alt="作品封面" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover" referrerpolicy="no-referrer" />'
-        : icon;
+      const cover = coverMarkup(source, thumb && thumb.kind !== 'video' ? thumb.url : '', entry.raw_url);
       return '<div class="hist-item" data-id="' + esc(entry.id) + '">' +
         '<div class="hist-thumb">' + cover + '</div>' +
         '<div class="hist-info">' +
-          '<div class="hist-title">' + esc(entry.title || entry.content || entry.raw_url || '未命名内容') + '</div>' +
-          '<div class="hist-sub">' + esc((entry.platform && entry.platform.name) || '未知平台') + ' · ' + formatTime(entry.time) + ' · ' + (entry.media_count || 0) + ' 个媒体</div>' +
+          '<div class="hist-title">' + esc(workTitle(entry)) + '</div>' +
+          '<div class="hist-author">' + esc(entry.author || '未知作者') + '</div>' +
+          '<div class="hist-sub">' + esc((entry.platform && entry.platform.name) || '未知平台') + ' · 解析于 ' + formatTime(entry.time) + ' · ' + (entry.media_count || 0) + ' 个媒体' + (entry.post_id ? ' · ID：' + esc(entry.post_id) : '') + '</div>' +
         '</div>' +
+        (entry.raw_url ? '<button class="btn tiny ghost" data-history-action="refresh" data-id="' + esc(entry.id) + '">更新信息</button>' : '') +
         '<button class="icon-btn" data-history-action="delete" data-id="' + esc(entry.id) + '" title="删除记录" style="width:28px;height:28px">&times;</button>' +
       '</div>';
-    });
+    }, '', 'history', (entry) => entry.author || '未知作者');
 }
 
 async function loadHistory() {
@@ -750,7 +766,7 @@ async function renderSettingsAbout() {
       '<div class="desc">ParseHub Studio 是 <a href="https://github.com/z-mio/ParseHub" target="_blank" rel="noreferrer">ParseHub</a> 的可视化界面，' +
       '解析与下载能力全部来自 ParseHub 本体，支持 17+ 社交平台，配置与命令行工具共用。</div>' +
       '<div class="desc">运行方式：' + (state.desktop ? 'Tauri 2 + Python sidecar' : '浏览器开发模式') +
-      ' · 版本 ' + esc((state.health && state.health.version) || '0.3.0') +
+      ' · 版本 ' + esc((state.health && state.health.version) || '未知') +
       ' · FFmpeg ' + (state.health && state.health.ffmpeg ? '已就绪' : '未检测到（部分合并/转码功能不可用）') + '</div>' +
     '</div>' +
     '<div class="field">' +
@@ -1001,10 +1017,18 @@ async function handleClick(event) {
   if (historyAction) {
     event.stopPropagation();
     try {
-      await api('/api/history/' + historyAction.dataset.id, { method: 'DELETE' });
+      if (historyAction.dataset.historyAction === 'refresh') {
+        const entry = state.history.find((item) => item.id === historyAction.dataset.id);
+        if (!entry || !entry.raw_url) return;
+        historyAction.disabled = true;
+        await api('/api/parse', { method: 'POST', body: { text: entry.raw_url, use_saved_config: $('#useSavedConfig').checked } });
+        toast('作品信息已更新', 'ok');
+      } else await api('/api/history/' + historyAction.dataset.id, { method: 'DELETE' });
       await loadHistory();
     } catch (error) {
       toast(error.message, 'err');
+    } finally {
+      historyAction.disabled = false;
     }
     return;
   }
@@ -1065,6 +1089,13 @@ function bindLightboxEvents() {
   });
 }
 
+function fallbackCover(node) {
+  if (node.dataset.alternate && !node.dataset.retried) {
+    node.dataset.retried = '1';
+    node.src = proxied(node.dataset.alternate, { referer: node.dataset.referer });
+  } else node.parentElement.textContent = '封面失效';
+}
+
 function bindMediaFallback() {
   const indexOf = (node) => {
     const raw = node.dataset ? node.dataset.tileIndex : undefined;
@@ -1074,6 +1105,10 @@ function bindMediaFallback() {
   document.addEventListener('load', (event) => {
     const node = event.target;
     if (!(node instanceof HTMLImageElement)) return;
+    if (node.dataset.historyCover && (node.naturalWidth <= 2 || node.naturalHeight <= 2)) {
+      fallbackCover(node);
+      return;
+    }
     const index = indexOf(node);
     if (index === null) return;
     setTileState(index, node.naturalWidth > 2 && node.naturalHeight > 2 ? 'ready' : 'blank');
@@ -1088,12 +1123,7 @@ function bindMediaFallback() {
     const node = event.target;
     if (!(node instanceof HTMLImageElement) && !(node instanceof HTMLVideoElement)) return;
     if (node.dataset.historyCover) {
-      if (node.dataset.alternate && !node.dataset.retried) {
-        node.dataset.retried = '1';
-        node.src = proxied(node.dataset.alternate, { referer: node.dataset.referer });
-      } else {
-        node.parentElement.textContent = '封面失效';
-      }
+      fallbackCover(node);
       return;
     }
     const direct = node.dataset && node.dataset.src;
@@ -1136,7 +1166,7 @@ function currentSource() {
 
 function setView(view) {
   $('#workspace').dataset.view = view;
-  $('#pageTitle').textContent = { parse: '解析工作台', tasks: '下载管理', history: '历史记录' }[view];
+  $('#pageTitle').textContent = { parse: '解析工作台', tasks: '下载管理', history: '历史记录', cookies: 'Cookie 池', bookmarks: '解析网站收藏' }[view];
   $$('.nav-item[data-view]').forEach((button) => {
     button.classList.toggle('active', button.dataset.view === view);
     if (button.dataset.view === view) button.setAttribute('aria-current', 'page');
@@ -1144,6 +1174,8 @@ function setView(view) {
   });
   $('#tabTasks').hidden = view !== 'tasks';
   $('#tabHistory').hidden = view !== 'history';
+  $('#cookiePoolPage').hidden = view !== 'cookies';
+  $('#bookmarksPage').hidden = view !== 'bookmarks';
   $('#workspaceScroll').scrollTop = 0;
   if (view === 'tasks') refreshTasks();
   if (view === 'history') loadHistory();
@@ -1201,15 +1233,20 @@ function renderBatch() {
     }, 'batch-list');
 }
 
-function groupedMarkup(items, keyFor, render, className = '') {
+function groupedMarkup(items, keyFor, render, className = '', scope = '', subgroupFor = null) {
   const groups = new Map();
   items.forEach((item) => {
     const key = keyFor(item) || '待识别 / 未知平台';
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(item);
   });
-  return Array.from(groups, ([name, entries]) => '<section class="platform-group"><h3>' + esc(name) +
-    ' <small>' + entries.length + '</small></h3><div class="' + className + '">' + entries.map(render).join('') + '</div></section>').join('');
+  return Array.from(groups, ([name, entries]) => {
+    const key = scope + '/' + encodeURIComponent(name);
+    const heading = esc(name) + ' <small>' + entries.length + '</small>';
+    const body = subgroupFor ? groupedMarkup(entries, subgroupFor, render, className, key) : '<div class="' + className + '">' + entries.map(render).join('') + '</div>';
+    if (!scope) return '<section class="platform-group"><h3>' + heading + '</h3>' + body + '</section>';
+    return '<details class="platform-group collapsible-group" data-collapse-key="' + esc(key) + '"' + (state.collapsedGroups[key] ? '' : ' open') + '><summary>' + heading + '</summary>' + body + '</details>';
+  }).join('');
 }
 
 async function refreshBatch() {
@@ -1239,6 +1276,13 @@ async function refreshBatch() {
 
 function bindWorkspaceEvents() {
   bindCollections();
+  try { state.collapsedGroups = JSON.parse(localStorage.getItem('parsehub-collapsed-groups') || '{}') || {}; } catch { state.collapsedGroups = {}; }
+  document.addEventListener('toggle', (event) => {
+    const node = event.target;
+    if (!node.dataset || !node.dataset.collapseKey || !node.isConnected) return;
+    state.collapsedGroups[node.dataset.collapseKey] = !node.open;
+    try { localStorage.setItem('parsehub-collapsed-groups', JSON.stringify(state.collapsedGroups)); } catch {}
+  }, true);
   $('#downloadDock').addEventListener('click', () => setView('tasks'));
   $$('.nav-item[data-view]').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
   $('#aboutBtn').addEventListener('click', () => { $('#settingsBtn').click(); $('[data-stab="about"]').click(); });
@@ -1260,18 +1304,17 @@ function bindWorkspaceEvents() {
 }
 
 function bindCollections() {
-  document.body.insertAdjacentHTML('beforeend',
-    '<div class="modal" id="cookiePoolModal" hidden role="dialog" aria-modal="true" aria-labelledby="cookiePoolTitle"><div class="modal-card wide"><div class="modal-head"><h3 id="cookiePoolTitle">Cookie 池</h3><button class="icon-btn" data-collection-close="cookiePoolModal" aria-label="关闭">×</button></div><div class="modal-body"><p class="desc">按平台轮换已启用账户，每次解析使用一个 Cookie；不自动重试登录失败，不绕过平台风控。Cookie 仅保存在本机配置文件中（明文），请勿分享。没有启用的池条目时使用下方 CLI 默认 Cookie。</p><div id="poolContent"></div><details><summary>兼容设置：CLI 默认 Cookie</summary><div id="legacyCookieHost"></div></details></div></div></div>' +
-    '<div class="modal" id="bookmarksModal" hidden role="dialog" aria-modal="true" aria-labelledby="bookmarksTitle"><div class="modal-card wide"><div class="modal-head"><h3 id="bookmarksTitle">解析网站收藏</h3><button class="icon-btn" data-collection-close="bookmarksModal" aria-label="关闭">×</button></div><div class="modal-body"><p class="desc">仅收藏网页，使用外部浏览器打开。需手动粘贴链接；不会传送本地 Cookie 或自动导入结果。</p><form id="bookmarkForm" class="collection-form"><input name="name" required maxlength="100" placeholder="网站名称" aria-label="网站名称"><input name="url" type="url" required maxlength="2000" placeholder="https://…" aria-label="网站地址"><input name="group" maxlength="100" placeholder="分组，例如抖音 / 通用" aria-label="收藏分组"><button class="btn primary" type="submit">保存收藏</button><button class="btn ghost" type="reset">取消编辑</button></form><div id="bookmarkList"></div></div></div></div>');
+  $('#workspaceScroll').insertAdjacentHTML('beforeend',
+    '<section class="panel collection-page" id="cookiePoolPage" hidden aria-label="Cookie 池"><p class="desc">按平台轮换已启用账户，每次解析使用一个 Cookie；不自动重试登录失败，不绕过平台风控。Cookie 仅保存在本机配置文件中（明文），请勿分享。没有启用的池条目时使用下方 CLI 默认 Cookie。</p><div id="poolContent"></div><details><summary>兼容设置：CLI 默认 Cookie</summary><div id="legacyCookieHost"></div></details></section>' +
+    '<section class="panel collection-page" id="bookmarksPage" hidden aria-label="解析网站收藏"><p class="desc">仅收藏网页，使用外部浏览器打开。需手动粘贴链接；不会传送本地 Cookie 或自动导入结果。</p><form id="bookmarkForm" class="collection-form"><input name="name" required maxlength="100" placeholder="网站名称" aria-label="网站名称"><input name="url" type="url" required maxlength="2000" placeholder="https://…" aria-label="网站地址"><input name="group" maxlength="100" placeholder="分组，例如抖音 / 通用" aria-label="收藏分组"><button class="btn primary" type="submit">保存收藏</button><button class="btn ghost" type="reset">取消编辑</button></form><div id="bookmarkList"></div></section>');
   $('[data-stab="cookie"]').remove();
   $('#legacyCookieHost').appendChild($('#stabCookie'));
   $('#stabCookie').hidden = false;
-  $$('[data-collection-close]').forEach((button) => button.addEventListener('click', () => { $('#' + button.dataset.collectionClose).hidden = true; }));
   $('#cookiePoolBtn').addEventListener('click', async () => {
-    try { await loadPlatforms(); renderCookiePool(); renderSettingsCookie(); $('#cookiePoolModal').hidden = false; }
+    try { await loadPlatforms(); renderCookiePool(); renderSettingsCookie(); }
     catch (error) { toast(error.message, 'err'); }
   });
-  $('#bookmarksBtn').addEventListener('click', () => { renderBookmarks(); $('#bookmarksModal').hidden = false; });
+  $('#bookmarksBtn').addEventListener('click', () => { renderBookmarks(); });
   $('#bookmarkForm').addEventListener('reset', () => { delete $('#bookmarkForm').dataset.edit; });
   $('#bookmarkForm').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1340,13 +1383,16 @@ function renderCookiePool() {
 }
 
 function renderSettingsNaming() {
-  const names = { platform: '平台', author: '作者', title: '标题', id: '作品 ID', publish_date: '发布日期', date: '下载日期', time: '下载时间', 'index:03d': '序号 001', type: '媒体类型' };
+  const names = { platform: '平台', author: '作者', creator: '归档作者', title: '标题', id: '作品 ID', publish_date: '发布日期', date: '下载日期', time: '下载时间', 'index:03d': '序号 001', type: '媒体类型' };
   $('#stabNaming').innerHTML = '<div class="field"><label for="folderTemplate">作品文件夹</label><input type="text" maxlength="200" spellcheck="false" id="folderTemplate" value="' + esc(state.settings.folder_template || '{platform}_{title}_{id}') + '" /></div>' +
     '<div class="field"><label for="fileTemplate">媒体文件名</label><input type="text" maxlength="200" spellcheck="false" id="fileTemplate" value="' + esc(state.settings.file_template || '{index:03d}_{title}') + '" /></div>' +
     '<p class="desc">先点选输入框，再点击元素插入。扩展名自动保留；不支持目录分隔符。作者缺失时使用“未知作者”。发布日期格式为 YYYY-MM-DD，带时区的时间按本机时区转换；平台未提供时使用“未知发布日期”，不会用下载日期冒充。</p>' +
     '<div class="naming-elements">' + Object.entries(names).map(([key, label]) => '<button class="btn tiny" data-token="' + key + '">' + label + '</button>').join('') + '</div>' +
     '<div class="naming-preview" id="namingPreview" role="status"></div><p class="desc">标题最多 40 字，生成名称最多 100 字；非法字符自动替换，重名加序号，不覆盖已有文件。实况视频额外加 _live。</p>' +
-    '<button class="btn primary" id="saveNaming">保存命名规则</button>';
+    '<label class="check"><input id="mergeFolders" type="checkbox"' + (state.settings.merge_author_folders !== false ? ' checked' : '') + '>同名文件夹合并归档（仅文件重名时加后缀，不覆盖）</label>' +
+    '<p class="desc">单平台按博主收集：文件夹用 {platform}_{author}。跨平台收集：先添加下面的作者映射，文件夹用 {creator}；文件名建议 {platform}_{id}_{index:03d}。已有 _2 文件夹不会自动移动或删除。</p>' +
+    '<button class="btn primary" id="saveNaming">保存命名规则</button><h3>跨平台作者映射</h3><p class="desc">把不同平台的作者 ID 或昵称映射到同一归档作者，例如“岛田云溪”。优先匹配作者 ID；昵称仅在没有 ID 映射时匹配，重名账号请用 ID 区分。</p><div id="authorAliases"></div>';
+  renderAuthorAliases();
   let target = $('#fileTemplate');
   let revision = 0;
   const preview = async () => {
@@ -1366,11 +1412,37 @@ function renderSettingsNaming() {
   }));
   $('#saveNaming').addEventListener('click', async () => {
     try {
-      state.settings = await api('/api/settings', { method: 'POST', body: { folder_template: $('#folderTemplate').value, file_template: $('#fileTemplate').value } });
+      state.settings = await api('/api/settings', { method: 'POST', body: { folder_template: $('#folderTemplate').value, file_template: $('#fileTemplate').value, merge_author_folders: $('#mergeFolders').checked } });
       toast('命名规则已保存，对新下载任务生效', 'ok');
     } catch (error) { toast(error.message, 'err'); }
   });
   preview();
+}
+
+function renderAuthorAliases() {
+  const entries = state.settings.author_aliases || [];
+  $('#authorAliases').innerHTML = '<form id="aliasForm" class="collection-form"><select name="platform" aria-label="映射平台">' +
+    state.platforms.map((platform) => '<option value="' + esc(platform.id) + '">' + esc(platform.name) + '</option>').join('') +
+    '</select><select name="match_by" aria-label="匹配方式"><option value="id">作者 ID</option><option value="name">作者昵称</option></select><input name="account" required maxlength="200" aria-label="作者 ID 或昵称" placeholder="作者 ID 或准确昵称"><input name="creator" required maxlength="100" aria-label="归档作者" placeholder="统一归档作者"><button class="btn" type="submit">保存映射</button></form>' +
+    entries.map((entry, index) => '<div class="collection-row"><span>' + esc((state.platforms.find((platform) => platform.id === entry.platform) || {}).name || entry.platform) + ' · ' +
+      (entry.match_by === 'name' ? '昵称 ' : 'ID ') + esc(entry.account) + ' → ' + esc(entry.creator) + '</span><button class="btn tiny ghost" data-alias-delete="' + index + '">删除</button></div>').join('');
+  $('#aliasForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const fields = event.currentTarget.elements;
+    const entry = { platform: fields.platform.value, match_by: fields.match_by.value, account: fields.account.value.trim(), creator: fields.creator.value.trim() };
+    const aliases = entries.filter((item) => !(item.platform === entry.platform && item.match_by === entry.match_by && item.account === entry.account));
+    aliases.push(entry);
+    try {
+      state.settings = await api('/api/settings', { method: 'POST', body: { author_aliases: aliases } });
+      renderAuthorAliases(); toast('作者映射已保存；文件夹使用 {creator} 可跨平台归档', 'ok');
+    } catch (error) { toast(error.message, 'err'); }
+  });
+  $$('[data-alias-delete]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      state.settings = await api('/api/settings', { method: 'POST', body: { author_aliases: entries.filter((entry, index) => index !== Number(button.dataset.aliasDelete)) } });
+      renderAuthorAliases();
+    } catch (error) { toast(error.message, 'err'); }
+  }));
 }
 
 function updateViewer() {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field, replace
@@ -11,12 +12,14 @@ from typing import Any, Callable, Sequence
 from urllib.parse import urlparse
 
 from parsehub import ParseHub
+from parsehub.config import GlobalConfig
 from parsehub.errors import ParseError, UnknownPlatform
 from parsehub.types import LivePhotoRef, MultimediaParseResult
 
+from .archive import publish_archive
 from .naming import DEFAULT_FILE, DEFAULT_FOLDER, apply_naming
 from .platform_config import PlatformConfigBridge
-from .serialize import result_to_payload
+from .serialize import display_title, result_to_payload
 
 FINISHED_STATUSES = {"success", "partial", "error", "cancelled"}
 
@@ -37,6 +40,11 @@ class Task:
     platform: str | None = None
     title: str | None = None
     thumbnail: str | None = None
+    thumbnail_original: str | None = None
+    author: str = ""
+    post_id: str = ""
+    raw_url: str = ""
+    published_at: str | int = ""
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
     payload: dict[str, Any] | None = None
@@ -57,6 +65,11 @@ class Task:
             "platform": self.platform,
             "title": self.title,
             "thumbnail": self.thumbnail,
+            "thumbnail_original": self.thumbnail_original,
+            "author": self.author,
+            "post_id": self.post_id,
+            "raw_url": self.raw_url,
+            "published_at": self.published_at,
             "created_at": self.created_at,
             "finished_at": self.finished_at,
         }
@@ -223,20 +236,27 @@ class TaskManager:
         result = await ph.parse(text, proxy=parse_proxy, cookie=cookie)
 
         task.payload = result_to_payload(result)
-        task.title = result.title or result.name
+        task.title = display_title(task.payload)
+        task.author = str(task.payload.get("author") or "未知作者")
+        task.post_id = str(task.payload.get("post_id") or "")
+        task.raw_url = task.payload.get("raw_url") or ""
+        task.published_at = task.payload.get("published_at") or ""
         task.platform = result.platform.display_name if result.platform else None
-        media_items = _as_media_list(getattr(result, "media", None))
-        if media_items:
-            first = task.payload["media"][0] if task.payload and task.payload.get("media") else None
-            if first:
-                task.thumbnail = first.get("thumb_url") or first.get("url")
+        for media in task.payload.get("media", []):
+            source = media.get("preview_url") or media.get("thumb_url")
+            if not source and media.get("kind") != "video":
+                source = media.get("url")
+            if source:
+                task.thumbnail = source
+                task.thumbnail_original = media.get("url") if media.get("kind") != "video" else None
+                break
 
         index = options.get("media_index")
         if index is not None:
             result = _pick_media(result, int(index))
         result = _apply_quality(result, str(options.get("quality") or "origin"))
         apply_naming(result, task.payload, options.get("folder_template", DEFAULT_FOLDER),
-                     options.get("file_template", DEFAULT_FILE), int(index or 0))
+                     options.get("file_template", DEFAULT_FILE), int(index or 0), options.get("author_aliases"))
 
         task.stage = "下载中"
 
@@ -247,13 +267,32 @@ class TaskManager:
             task.progress = (current / total) if total else 0.0
             task.stage = "当前文件下载中" if unit == "bytes" else f"已下载媒体 {current}/{total}"
 
+        save_path = options.get("path")
+        staging = None
+        if options.get("merge_author_folders"):
+            root = Path(save_path or GlobalConfig.default_save_dir).resolve()
+            root.mkdir(parents=True, exist_ok=True)
+            staging = Path(tempfile.mkdtemp(prefix=".parsehub-", dir=root))
+            save_path = staging
+            task.output_dir = str(staging)
         download_result = await result.download(
-            path=options.get("path"),
+            path=save_path,
             callback=on_progress,
             proxy=download_proxy,
             save_metadata=bool(options.get("save_metadata")),
             connections=int(options.get("connections") or 4),
         )
+
+        if staging:
+            task.stage = "归档中"
+            publication = asyncio.create_task(asyncio.to_thread(
+                publish_archive, download_result, staging, staging.parent / result.name))
+            try:
+                download_result = await asyncio.shield(publication)
+            except asyncio.CancelledError:
+                await publication
+                task.output_dir = str(download_result.output_dir)
+                raise
 
         files = _as_media_list(download_result.media)
         task.files = [str(f.path) for f in files]

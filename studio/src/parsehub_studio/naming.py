@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 TOKENS = {
     "platform": "平台",
     "author": "作者",
+    "creator": "归档作者",
     "title": "标题",
     "id": "作品 ID",
     "date": "下载日期",
@@ -79,7 +80,17 @@ def publication_date(value, timezone) -> str:
         return "未知发布日期"
 
 
-def naming_values(payload: dict, now: datetime | None = None) -> dict:
+def archive_creator(payload: dict, aliases: list[dict] | None = None) -> str:
+    platform = (payload.get("platform") or {}).get("id")
+    for match_by, field in (("id", "author_id"), ("name", "author")):
+        account = str(payload.get(field) or "").strip()
+        for alias in aliases or []:
+            if account and alias["platform"] == platform and alias.get("match_by", "id") == match_by and alias["account"] == account:
+                return alias["creator"]
+    return payload.get("author") or "未知作者"
+
+
+def naming_values(payload: dict, now: datetime | None = None, aliases: list[dict] | None = None) -> dict:
     now = now or datetime.now(UTC).astimezone()
     raw = payload.get("raw_url") or ""
     parsed = urlparse(raw)
@@ -92,6 +103,7 @@ def naming_values(payload: dict, now: datetime | None = None) -> dict:
     return {
         "platform": (payload.get("platform") or {}).get("name") or "未知平台",
         "author": payload.get("author") or "未知作者",
+        "creator": archive_creator(payload, aliases),
         "title": safe_name(title, 40),
         "id": safe_name(str(post_id), 32),
         "date": now.strftime("%Y-%m-%d"),
@@ -107,8 +119,9 @@ def render_name(template: str, values: dict) -> str:
     return safe_name(template.format_map(values))
 
 
-def apply_naming(result, payload: dict, folder: str, filename: str, index_offset: int = 0):
-    values = naming_values(payload)
+def apply_naming(result, payload: dict, folder: str, filename: str, index_offset: int = 0,
+                 aliases: list[dict] | None = None):
+    values = naming_values(payload, aliases=aliases)
     result.name = render_name(folder, values)
     used = set()
 

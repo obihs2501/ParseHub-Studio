@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from html import unescape
 from typing import Any
 
 import bleach
@@ -34,6 +35,16 @@ TYPE_LABELS = {
     "richtext": "长文",
     "unknown": "未知",
 }
+
+
+def display_title(payload: dict) -> str:
+    for field in ("title", "content"):
+        value = unescape(bleach.clean(str(payload.get(field) or ""), tags=[], strip=True))
+        value = value.translate({ord(char): None for char in "\u200b\u200c\u200d\ufeff"})
+        value = " ".join(value.split())
+        if value and not value.isdigit() and value != str(payload.get("post_id") or ""):
+            return value[:100]
+    return "无标题作品"
 
 
 def sanitize_html(content: str) -> str:

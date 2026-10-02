@@ -10,6 +10,25 @@
 .collection-form input, .collection-form select { flex: 1 1 140px; min-width: 0; padding: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
 .collection-row { border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .collection-row > :first-child { flex: 1 1 200px; min-width: 0; }
+.app[data-view="cookies"] .layout .column-side, .app[data-view="bookmarks"] .layout .column-side { display: none; }
+.collection-page { padding: 22px; max-width: 1400px; margin: 0 auto; }
+.collapsible-group { border-top: 1px solid var(--border); padding: 12px 0; }
+.collapsible-group > summary { cursor: pointer; color: var(--accent); font-size: 14px; font-weight: 600; padding: 5px 0; }
+.collapsible-group > summary small { color: var(--muted); margin-left: 8px; }
+.collapsible-group .collapsible-group { margin-left: 18px; }
+.task-card { display: flex; align-items: flex-start; gap: 14px; }
+.task-body { flex: 1; min-width: 0; }
+.task-thumb { width: 76px; height: 76px; flex: none; border-radius: 8px; overflow: hidden; background: var(--panel-soft); display: grid; place-items: center; color: var(--muted); font-size: 11px; }
+.task-thumb img, .hist-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.task-meta, .hist-author { color: var(--muted); font-size: 12px; margin-top: 6px; overflow-wrap: anywhere; }
+.task-title { white-space: normal; overflow-wrap: anywhere; }
+.hist-thumb { flex-shrink: 0; font-size: 11px; }
+.app-sidebar { overflow-y: auto; min-height: 0; }
+@media (max-height: 700px) {
+  .app .app-sidebar { padding-top: 18px; padding-bottom: 14px; }
+  .sidebar-caption { padding-bottom: 16px; }
+  .sidebar-bottom small { padding-top: 12px; }
+}
 html[data-theme="light"] { --bg: #faf9f5; --panel: #fff; --panel-solid: #faf9f5; --panel-soft: #f0eee6; --panel-hover: #ebe7db; --border: #e8e6dc; --border-strong: #d5cfc0; --text: #2f342d; --text-dim: #514e44; --muted: #878274; --accent: #b96b49; --accent-soft: #b96b4912; --shadow: none; }
 .app { display: grid; grid-template-columns: 206px minmax(0, 1fr); height: 100dvh; overflow: hidden; }
 .app-sidebar { display: flex; flex-direction: column; padding: 32px 16px 22px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 85%, var(--border)); }

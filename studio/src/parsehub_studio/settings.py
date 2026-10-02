@@ -44,6 +44,27 @@ def _default_save_dir() -> Path:
     return base / "ParseHub"
 
 
+class AuthorAlias(BaseModel):
+    platform: str = Field(min_length=1, max_length=100)
+    account: str = Field(min_length=1, max_length=200)
+    creator: str = Field(min_length=1, max_length=100)
+    match_by: str = "id"
+
+    @field_validator("platform", "account", "creator")
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError("作者映射字段不能为空")
+        return value.strip()
+
+    @field_validator("match_by")
+    @classmethod
+    def valid_match(cls, value):
+        if value not in {"id", "name"}:
+            raise ValueError("请选择作者 ID 或作者昵称")
+        return value
+
+
 class Settings(BaseModel):
     """应用设置。"""
 
@@ -63,6 +84,8 @@ class Settings(BaseModel):
     ffmpeg_dir: str = ""
     folder_template: str = DEFAULT_FOLDER
     file_template: str = DEFAULT_FILE
+    merge_author_folders: bool = True
+    author_aliases: list[AuthorAlias] = Field(default_factory=list, max_length=500)
     bookmarks: list[Bookmark] = Field(default_factory=lambda: [
         Bookmark(name="KuKuTool", url="https://dy.kukutool.com/", group="抖音")
     ], max_length=200)

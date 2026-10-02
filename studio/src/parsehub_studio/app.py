@@ -33,7 +33,7 @@ from .network import resolve_default_proxy
 from .platform_config import PlatformConfigBridge
 from .security import install_security
 from .serialize import result_to_payload
-from .settings import Bookmark, Settings, SettingsStore
+from .settings import AuthorAlias, Bookmark, Settings, SettingsStore
 from .tasks import TaskManager
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -104,6 +104,8 @@ class PathRequest(StrictModel):
 
 
 class SettingsPayload(StrictModel):
+    merge_author_folders: bool | None = None
+    author_aliases: list[AuthorAlias] | None = Field(default=None, max_length=500)
     bookmarks: list[Bookmark] | None = Field(default=None, max_length=200)
     default_save_dir: Path | None = None
     connections: int | None = Field(default=None, ge=1, le=32)
@@ -298,7 +300,9 @@ def create_app(session_token: str | None = None) -> FastAPI:
             options = {**payload.model_dump(), "default_proxy": await context.default_proxy(),
                        "path": str(context.settings.default_save_dir), "connections": context.settings.connections,
                        "save_metadata": context.settings.save_metadata, "quality": context.settings.download_quality,
-                       "folder_template": context.settings.folder_template, "file_template": context.settings.file_template}
+                       "folder_template": context.settings.folder_template, "file_template": context.settings.file_template,
+                       "merge_author_folders": context.settings.merge_author_folders,
+                       "author_aliases": [alias.model_dump() for alias in context.settings.author_aliases]}
             return context.batches.create(links, options)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -335,6 +339,8 @@ def create_app(session_token: str | None = None) -> FastAPI:
         options = payload.model_dump()
         options["folder_template"] = context.settings.folder_template
         options["file_template"] = context.settings.file_template
+        options["merge_author_folders"] = context.settings.merge_author_folders
+        options["author_aliases"] = [alias.model_dump() for alias in context.settings.author_aliases]
         if options.get("path") is None:
             options["path"] = str(context.settings.default_save_dir)
         if options.get("save_metadata") is None:

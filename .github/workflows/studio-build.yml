@@ -162,13 +162,18 @@ jobs:
           path: release
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: studio-v0.3.0-${{ github.run_number }}
+          tag_name: studio-v0.4.0-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: ParseHub Studio 0.3.0 Workspace · Build ${{ github.run_number }}
+          name: ParseHub Studio 0.4.0 · Build ${{ github.run_number }}
           prerelease: true
           body: |
             Windows 10/11 x64 · Tauri 2 + bundled Python sidecar · Lightweight build.
 
+            - Compact centered 1040x680 window (minimum 820x560); Cookie pools and parser bookmarks are full workspace pages.
+            - Collapsible platform/author history groups with remembered state, author labels and manual information refresh.
+            - Download cards show covers, readable post titles, authors and post IDs instead of filenames or timestamps.
+            - Safe same-folder archiving: existing files are never overwritten; only colliding filenames get suffixes.
+            - Cross-platform author aliases and the {creator} naming token; existing numbered folders are not moved automatically.
             - Redesigned sidebar workspace with a single scrollable content area, separate downloads/history, and light/dark themes.
             - Mixed-platform batch parsing (50 links, 3 concurrent), per-item results, cancellation and retry.
             - Original-resolution image viewer: zoom, pan, 1:1, fit, rotate and keyboard navigation.

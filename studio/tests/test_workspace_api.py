@@ -27,7 +27,9 @@ class WorkspaceApiTests(unittest.IsolatedAsyncioTestCase):
                 httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost") as client,
             ):
                 response = await client.post(
-                    "/api/settings", json={"folder_template": "{author}_{id}", "file_template": "{index:03d}_{title}"}
+                    "/api/settings", json={"folder_template": "{author}_{id}", "file_template": "{index:03d}_{title}",
+                        "merge_author_folders": True,
+                        "author_aliases": [{"platform": "weibo", "account": "123", "creator": "云溪", "match_by": "id"}]}
                 )
                 self.assertEqual(response.status_code, 200)
                 response = await client.post("/api/settings", json={"folder_template": "../bad"})
@@ -49,6 +51,8 @@ class WorkspaceApiTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response.json()["status"], "complete")
                 self.assertEqual(len(response.json()["items"]), 2)
                 self.assertEqual(context.batches.parse.call_args.args[1]["folder_template"], "{author}_{id}")
+                self.assertTrue(context.batches.parse.call_args.args[1]["merge_author_folders"])
+                self.assertEqual(context.batches.parse.call_args.args[1]["author_aliases"][0]["creator"], "云溪")
                 self.assertEqual((await client.post("/api/batches", json={"text": "no link"})).status_code, 400)
                 self.assertEqual((await client.get("/api/batches/missing")).status_code, 404)
 
