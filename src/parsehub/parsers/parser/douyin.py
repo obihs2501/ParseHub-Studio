@@ -91,9 +91,12 @@ class DouyinParser(BaseParser):
 
         match result.type:
             case DouyinMediaType.VIDEO:
-                return self._build_video_result(result)
+                parsed = self._build_video_result(result)
             case DouyinMediaType.IMAGE:
-                return self._build_image_result(result)
+                parsed = self._build_image_result(result)
+        parsed.author = result.author
+        parsed.post_id = result.post_id
+        return parsed
 
     async def _fetch_api_result(self, raw_url: str) -> "DouyinApiResult":
         """获取并解析抖音 API 结果"""
@@ -204,15 +207,29 @@ def _p_bit_rates(video_data: dict, filter_bytevc1: bool = False) -> tuple[str, i
 
 
 def parse_video_info(video_data: dict) -> dict:
-    is_app = video_data.get("is_bytevc1", None) is not None  # 只有 app 接口带 is_bytevc1 参数
-    if is_app:
-        u, w, h = _p_play_addr(video_data)
-        if not u:
-            u, w, h = _p_bit_rates(video_data, True)
-    else:
-        u, w, h = _p_bit_rates(video_data)
-
-    video_url = remove_video_watermark(u)
+    candidates = []
+    addresses = [(video_data.get("play_addr") or {}, 0)]
+    addresses.extend(
+        (item.get("play_addr") or {}, item.get("bit_rate", 0))
+        for item in (video_data.get("bit_rate") or [])
+        if isinstance(item, dict)
+    )
+    for address, bitrate in addresses:
+        urls = [
+            url
+            for url in (address.get("url_list") or [])
+            if isinstance(url, str) and url.startswith(("https://", "http://"))
+        ]
+        if urls:
+            width = int(address.get("width") or video_data.get("width") or 0)
+            height = int(address.get("height") or video_data.get("height") or 0)
+            candidates.append(
+                (width * height, int(address.get("data_size") or 0), int(bitrate or 0), urls[0], width, height)
+            )
+    if not candidates:
+        raise ParseError("抖音未返回可用视频地址")
+    _, _, _, best_url, width, height = max(candidates, key=lambda item: item[:3])
+    video_url = remove_video_watermark(best_url)
 
     cover = video_data.get("cover", {})
     thumb_url_list = cover.get("url_list", [])
@@ -221,9 +238,9 @@ def parse_video_info(video_data: dict) -> dict:
     return {
         "video_url": video_url,
         "thumb_url": thumb_url,
-        "duration": video_data.get("duration", 0),
-        "width": w,
-        "height": h,
+        "duration": round((video_data.get("duration") or 0) / 1000),
+        "width": width,
+        "height": height,
     }
 
 
@@ -242,6 +259,8 @@ class DouyinApiResult:
     video: VideoRef | None = None
     desc: str = ""
     image_list: list[ImageRef | LivePhotoRef] = field(default_factory=list)
+    author: str = ""
+    post_id: str = ""
 
     @classmethod
     def parse(cls, json_dict: dict) -> Self:
@@ -252,11 +271,14 @@ class DouyinApiResult:
         desc = data.get("desc", "")
 
         if images := data.get("images"):
-            return cls._parse_images(images, desc)
+            result = cls._parse_images(images, desc)
         elif image_post_info := data.get("image_post_info"):
-            return cls._parse_image_post_info(image_post_info, desc)
+            result = cls._parse_image_post_info(image_post_info, desc)
         else:
-            return cls._parse_video(data, desc)
+            result = cls._parse_video(data, desc)
+        result.author = (data.get("author") or {}).get("nickname") or ""
+        result.post_id = str(data.get("aweme_id") or "")
+        return result
 
     @classmethod
     def _parse_images(cls, images: list[dict], desc: str) -> Self:

@@ -6,109 +6,77 @@
   <title>ParseHub Studio</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/workspace.css" />
 </head>
 <body>
-  <div class="app">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark">P</span>
-        <span class="brand-text"><strong>ParseHub</strong><em>Studio</em></span>
+  <div class="app" data-view="parse" id="workspace">
+    <aside class="app-sidebar" aria-label="主导航">
+      <div class="brand"><span class="brand-mark">P</span><span class="brand-text"><strong>ParseHub</strong><em>Studio</em></span></div>
+      <p class="sidebar-caption">你的本地媒体工作台</p>
+      <nav class="nav-list">
+        <button class="nav-item active" data-view="parse" aria-current="page"><span>⌕</span> 解析工作台</button>
+        <button class="nav-item" data-view="tasks"><span>↓</span> 下载管理 <span id="taskBadge" class="badge" hidden></span></button>
+        <button class="nav-item" data-view="history"><span>◷</span> 历史记录</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <button class="nav-item" id="settingsBtn"><span>⚙</span> 设置</button>
+        <button class="nav-item" id="aboutBtn"><span>ⓘ</span> 关于与支持平台</button>
+        <small>本地解析 · 文件留在你的电脑</small>
       </div>
-      <div class="platform-strip" id="platformStrip" aria-label="支持的平台"></div>
-      <div class="topbar-actions">
-        <span class="service-status" id="serviceStatus" role="status">连接中…</span>
-        <button class="icon-btn" id="themeBtn" title="切换主题" aria-label="切换主题">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
-        </button>
-        <button class="icon-btn" id="settingsBtn" title="设置" aria-label="设置">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-2.87 1.2V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-2.87-1.2l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3 15a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.13l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 10 4.6V4a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 2.87 1.2l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 21 11h.09a2 2 0 1 1 0 4H21z"/></svg>
-        </button>
-      </div>
-    </header>
-
-    <div class="service-alert" id="serviceAlert" role="alert" hidden></div>
-    <main class="layout">
-      <section class="column-main">
-        <div class="panel input-panel">
-          <div class="panel-head">
-            <span class="panel-title">粘贴分享链接</span>
-            <span class="detect-chip" id="detectChip">等待输入</span>
+    </aside>
+    <div class="workarea">
+      <header class="workspace-header">
+        <div><p class="eyebrow">MEDIA WORKSPACE</p><h1 id="pageTitle">解析工作台</h1></div>
+        <div class="header-actions"><span class="service-status" id="serviceStatus" role="status">连接中…</span><button class="icon-btn" id="themeBtn" title="切换主题" aria-label="切换主题">◐</button></div>
+      </header>
+      <div class="service-alert" id="serviceAlert" role="alert" hidden></div>
+      <main class="layout" id="workspaceScroll" tabindex="0" aria-label="可滚动内容区">
+        <section class="column-main">
+          <div class="panel input-panel">
+            <div class="panel-head"><label class="panel-title" for="input">粘贴链接，留住喜欢的内容</label><span class="detect-chip" id="detectChip">自动识别平台</span></div>
+            <textarea id="input" rows="3" placeholder="粘贴分享文案或多个链接，每行一条。微博、抖音、小红书等平台可以混合解析。"></textarea>
+            <div class="input-actions">
+              <span class="input-hint">最多 50 条 · 自动去重 · 3 路并发</span><div class="spacer"></div>
+              <button class="btn ghost" id="clearBtn">清空</button>
+              <button class="btn" id="downloadBtn">批量解析并下载</button>
+              <button class="btn primary" id="parseBtn">开始解析</button>
+            </div>
+            <details class="input-options"><summary>解析选项与外部工具</summary><div class="option-row">
+              <label class="check"><input type="checkbox" id="useSavedConfig" checked />使用已保存的代理 / Cookie</label>
+              <button class="btn tiny ghost" id="cleanBtn">清洗当前链接</button>
+              <button class="btn tiny ghost" id="externalParserBtn">打开 KuKuTool 解析网页 ↗</button>
+            </div><p class="desc">抖音自动选择接口返回的最高画质，不额外转码。第三方网页在独立窗口运行，需手动粘贴链接；不会传送本地 Cookie，结果不会自动导入。</p></details>
           </div>
-          <textarea id="input" rows="3" placeholder="支持 17+ 平台：小红书 / 抖音 / 微博 / 知乎 / B站 / X / Instagram …"></textarea>
-          <div class="input-actions">
-            <label class="check" title="使用已保存的平台代理与 Cookie">
-              <input type="checkbox" id="useSavedConfig" checked /><span>使用已保存的代理 / Cookie</span>
-            </label>
-            <div class="spacer"></div>
-            <button class="btn ghost" id="clearBtn">清空</button>
-            <button class="btn ghost" id="cleanBtn" title="从分享文案中提取并清洗链接">清洗链接</button>
-            <button class="btn" id="parseBtn">解析</button>
-            <button class="btn primary" id="downloadBtn">解析并下载</button>
+          <section class="batch-panel" id="batchPanel" hidden aria-label="本批解析结果"></section>
+          <section class="panel result-panel" id="resultPanel" aria-label="媒体预览"></section>
+        </section>
+        <section class="column-side">
+          <div class="panel side-panel">
+            <div class="tabs management-tabs" role="tablist"><button class="tab active" data-tab="tasks" role="tab">下载任务</button><button class="tab" data-tab="history" role="tab">历史记录</button></div>
+            <div class="tab-body" id="tabTasks"></div><div class="tab-body" id="tabHistory" hidden></div>
           </div>
-        </div>
-
-        <div class="panel result-panel" id="resultPanel"></div>
-      </section>
-
-      <aside class="column-side">
-        <div class="panel side-panel">
-          <div class="tabs" role="tablist">
-            <button class="tab active" data-tab="tasks" role="tab">下载任务<span class="badge" id="taskBadge" hidden></span></button>
-            <button class="tab" data-tab="history" role="tab">历史记录</button>
-          </div>
-          <div class="tab-body" id="tabTasks"></div>
-          <div class="tab-body" id="tabHistory" hidden></div>
-        </div>
-      </aside>
-    </main>
+        </section>
+      </main>
+    </div>
   </div>
-
-  <div class="modal" id="settingsModal" hidden>
+  <div class="modal" id="settingsModal" hidden role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
     <div class="modal-card wide">
-      <div class="modal-head">
-        <h3>设置</h3>
-        <button class="icon-btn" data-close="settingsModal" title="关闭">&times;</button>
-      </div>
-      <div class="tabs" role="tablist">
-        <button class="tab active" data-stab="general" role="tab">通用</button>
-        <button class="tab" data-stab="proxy" role="tab">代理</button>
-        <button class="tab" data-stab="cookie" role="tab">Cookie</button>
-        <button class="tab" data-stab="about" role="tab">关于</button>
-      </div>
-      <div class="modal-body">
-        <div class="stab" id="stabGeneral"></div>
-        <div class="stab" id="stabProxy" hidden></div>
-        <div class="stab" id="stabCookie" hidden></div>
-        <div class="stab" id="stabAbout" hidden></div>
-      </div>
+      <div class="modal-head"><h3 id="settingsTitle">偏好设置</h3><button class="icon-btn" data-close="settingsModal" aria-label="关闭设置">×</button></div>
+      <div class="tabs" role="tablist"><button class="tab active" data-stab="general" role="tab">通用</button><button class="tab" data-stab="naming" role="tab">文件命名</button><button class="tab" data-stab="proxy" role="tab">代理</button><button class="tab" data-stab="cookie" role="tab">Cookie</button><button class="tab" data-stab="about" role="tab">关于</button></div>
+      <div class="modal-body"><div class="stab" id="stabGeneral"></div><div class="stab" id="stabNaming" hidden></div><div class="stab" id="stabProxy" hidden></div><div class="stab" id="stabCookie" hidden></div><div class="stab" id="stabAbout" hidden></div></div>
     </div>
   </div>
-
-  <div class="modal" id="pickerModal" hidden>
-    <div class="modal-card">
-      <div class="modal-head">
-        <h3>选择下载目录</h3>
-        <button class="icon-btn" data-close="pickerModal" title="关闭">&times;</button>
-      </div>
-      <div class="picker-path" id="pickerPath"></div>
-      <div class="picker-list" id="pickerList"></div>
-      <div class="modal-foot">
-        <button class="btn ghost" id="pickerUp">上一级</button>
-        <div class="spacer"></div>
-        <button class="btn primary" id="pickerConfirm">选择当前目录</button>
-      </div>
-    </div>
+  <div class="modal" id="pickerModal" hidden role="dialog" aria-modal="true" aria-label="选择目录">
+    <div class="modal-card"><div class="modal-head"><h3>选择目录</h3><button class="icon-btn" data-close="pickerModal" aria-label="关闭目录选择">×</button></div><div class="picker-path" id="pickerPath"></div><div class="picker-list" id="pickerList"></div><div class="modal-foot"><button class="btn ghost" id="pickerUp">上一级</button><div class="spacer"></div><button class="btn primary" id="pickerConfirm">选择当前目录</button></div></div>
   </div>
-
-  <div class="lightbox" id="lightbox" hidden>
-    <button class="lb-close" id="lbClose" title="关闭">&times;</button>
-    <button class="lb-nav prev" id="lbPrev" title="上一个">&#8249;</button>
-    <div class="lb-stage" id="lbStage"></div>
-    <button class="lb-nav next" id="lbNext" title="下一个">&#8250;</button>
+  <div class="lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="媒体查看器">
+    <button class="lb-close" id="lbClose" title="关闭 (Esc)" aria-label="关闭预览">×</button>
+    <button class="lb-nav prev" id="lbPrev" title="上一张 (←)" aria-label="上一张">‹</button>
+    <div class="lb-viewport" id="lbViewport"><div class="lb-stage" id="lbStage"></div></div>
+    <button class="lb-nav next" id="lbNext" title="下一张 (→)" aria-label="下一张">›</button>
     <div class="lb-bar" id="lbBar"></div>
   </div>
-
-  <div class="toasts" id="toasts"></div>
+  <div class="toasts" id="toasts" role="status"></div>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

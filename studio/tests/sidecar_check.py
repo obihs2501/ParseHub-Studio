@@ -44,7 +44,7 @@ def main() -> None:
                 assert client.get(f"/desktop?token={token}").status_code == 200
                 assert client.get("/api/health").json()["desktop"]
                 assert len(client.get("/api/platforms").json()["platforms"]) >= 15
-                for asset in ("/app.js", "/styles.css", "/favicon.svg"):
+                for asset in ("/app.js", "/styles.css", "/workspace.css", "/favicon.svg"):
                     assert client.get(asset).status_code == 200
                 assert client.post("/api/detect", json={"text": "https://www.xiaohongshu.com/explore/abc123"}).json()["platform"]["id"] == "xhs"
                 assert client.get("/api/config", headers={"Origin": "https://evil.example"}).status_code == 403

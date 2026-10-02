@@ -78,18 +78,46 @@ fn launch_backend(app: &tauri::AppHandle) -> Result<(u16, String), String> {
 fn main() {
     let app = tauri::Builder::default()
         .manage(Backend::default())
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                window.app_handle().exit(0);
+            }
+        })
         .setup(|app| {
             let allowed_origin = Arc::new(Mutex::new(None::<String>));
             let navigation_origin = allowed_origin.clone();
             let smoke_test = std::env::var_os("PARSEHUB_DESKTOP_SMOKE_TEST").is_some();
             let smoke_handle = app.handle().clone();
+            let navigation_handle = app.handle().clone();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("ParseHub Studio")
                 .inner_size(1440.0, 920.0)
                 .min_inner_size(960.0, 640.0)
                 .on_navigation(move |url| {
+                    let trusted = navigation_origin.lock().unwrap().as_ref().is_some_and(|origin| url.origin().ascii_serialization() == *origin);
+                    if trusted && url.path() == "/external/douyin" {
+                        let handle = navigation_handle.clone();
+                        thread::spawn(move || {
+                            if let Some(external) = handle.get_webview_window("external-parser") {
+                                let _ = external.show();
+                                let _ = external.set_focus();
+                            } else {
+                                let result = WebviewWindowBuilder::new(&handle, "external-parser", WebviewUrl::External("https://dy.kukutool.com/".parse().unwrap()))
+                                    .title("第三方解析 · kukutool（请手动粘贴链接）")
+                                    .inner_size(1100.0, 820.0)
+                                    .on_navigation(|destination| destination.scheme() == "https" || destination.as_str() == "about:blank")
+                                    .build();
+                                if result.is_err() {
+                                    if let Some(main) = handle.get_webview_window("main") {
+                                        let _ = main.eval("window.alert('无法打开第三方窗口，请在浏览器中访问 https://dy.kukutool.com/')");
+                                    }
+                                }
+                            }
+                        });
+                        return false;
+                    }
                     url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost")
-                        || navigation_origin.lock().unwrap().as_ref().is_some_and(|origin| url.origin().ascii_serialization() == *origin)
+                        || trusted
                 })
                 .on_page_load(move |_window, payload| {
                     if smoke_test && payload.url().scheme() == "http" && payload.url().path() == "/"

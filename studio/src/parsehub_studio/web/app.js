@@ -22,6 +22,11 @@ const state = {
   pickerTarget: null,
   serviceFailures: 0,
   serviceChecking: false,
+  batch: null,
+  batchChecking: false,
+  selectedItem: null,
+  resultSource: '',
+  viewer: { zoom: 1, rotation: 0, panX: 0, panY: 0, fit: 1 },
 };
 
 /* ------------------------------------------------------------------ 工具 */
@@ -179,6 +184,7 @@ async function copyText(text, label = '已复制') {
 
 function renderPlatformStrip() {
   const strip = $('#platformStrip');
+  if (!strip) return;
   strip.innerHTML = state.platforms
     .map((item) => {
       const ready = item.cookie_set || item.parse_proxy || item.download_proxy;
@@ -346,10 +352,6 @@ function renderResult() {
       ? '<div class="post-caption"><div class="result-content" id="postCaption">' + esc(result.content.trim().replace(/\n{3,}/g, '\n\n')) + '</div>' +
         '<button class="btn tiny ghost" data-result-action="expand-text" aria-expanded="false" aria-controls="postCaption">展开全文</button></div>'
       : '';
-  const source = result.raw_url
-    ? '<div class="result-meta">原始链接：<a href="' + esc(result.raw_url) + '" target="_blank" rel="noreferrer">' + esc(result.raw_url) + '</a></div>'
-    : '';
-
   panel.innerHTML =
     '<div class="result-head">' +
       platformTag +
@@ -358,7 +360,9 @@ function renderResult() {
       '<h2 class="result-title">' + esc(result.title || (result.content || '').trim().split('\n')[0].slice(0, 100) || '解析结果') + '</h2>' +
     '</div>' +
     '<div class="result-toolbar">' +
-      '<button class="btn primary" data-result-action="download-all">下载全部</button>' +
+      '<button class="btn primary" data-result-action="download-all">下载本作品</button>' +
+      (result.raw_url ? '<button class="btn ghost" data-result-action="open-raw">打开原帖 ↗</button>' : '') +
+      '<details class="result-more"><summary>下载与预览选项</summary><div class="option-row">' +
       '<label class="select-wrap" title="下载规格">规格' +
         '<select id="qualitySelect">' +
           '<option value="origin"' + (state.quality === 'origin' ? ' selected' : '') + '>原图 / 原视频</option>' +
@@ -367,10 +371,9 @@ function renderResult() {
       '</label>' +
       '<label class="check" title="网格使用高清预览；取消则网格直接加载原图。点开大图始终显示原文件"><input type="checkbox" id="previewToggle"' + (state.previewMode ? ' checked' : '') + ' /><span>高清预览</span></label>' +
       '<button class="btn" data-result-action="copy-json">复制 JSON</button>' +
-      (result.raw_url ? '<button class="btn ghost" data-result-action="open-raw">打开原帖</button>' : '') +
       '<button class="btn ghost" data-result-action="reparse">重新解析</button>' +
+      '</div></details>' +
     '</div>' +
-    source +
     content +
     renderMediaGrid(result.media);
 }
@@ -516,6 +519,7 @@ function openLightbox(index) {
   state.lightbox.loaded = true;
   $('#lightbox').hidden = false;
   renderLightbox();
+  $('#lbClose').focus();
 }
 
 function closeLightbox() {
@@ -524,6 +528,7 @@ function closeLightbox() {
 }
 
 function renderLightbox() {
+  state.viewer = { zoom: 1, rotation: 0, panX: 0, panY: 0, fit: 1 };
   const items = state.lightbox.items;
   const index = state.lightbox.index;
   const media = items[index];
@@ -543,11 +548,16 @@ function renderLightbox() {
     previewing ? '预览图' : '原文件',
   ].filter(Boolean).join(' · ');
   const parts = ['<span class="tag">' + esc(info) + '</span>'];
+  if (media.kind !== 'video') parts.push(
+    '<button class="btn tiny" data-viewer="out" aria-label="缩小">−</button>' +
+    '<span class="zoom-label" id="zoomLabel">适应</span>' +
+    '<button class="btn tiny" data-viewer="in" aria-label="放大">＋</button>' +
+    '<button class="btn tiny" data-viewer="actual">1:1 原尺寸</button>' +
+    '<button class="btn tiny" data-viewer="fit">适应窗口</button>' +
+    '<button class="btn tiny" data-viewer="rotate">旋转 ↻</button>');
   if (previewing) parts.push('<button class="btn tiny primary" data-lb-action="load">加载原文件</button>');
   parts.push('<button class="btn tiny' + (previewing ? '' : ' primary') + '" data-lb-action="save">保存到下载目录</button>');
-  parts.push('<button class="btn tiny" data-lb-action="browser">浏览器下载</button>');
-  parts.push('<button class="btn tiny ghost" data-lb-action="copy">复制链接</button>');
-  parts.push('<button class="btn tiny ghost" data-lb-action="open">新窗口打开</button>');
+  parts.push('<div class="lb-help">滚轮缩放 · 拖动平移 · 双击原尺寸 · ← → 切换 · Esc 关闭</div>');
   $('#lbBar').innerHTML = parts.join('');
 }
 
@@ -727,7 +737,7 @@ async function renderSettingsAbout() {
       '<div class="desc">ParseHub Studio 是 <a href="https://github.com/z-mio/ParseHub" target="_blank" rel="noreferrer">ParseHub</a> 的可视化界面，' +
       '解析与下载能力全部来自 ParseHub 本体，支持 17+ 社交平台，配置与命令行工具共用。</div>' +
       '<div class="desc">运行方式：' + (state.desktop ? 'Tauri 2 + Python sidecar' : '浏览器开发模式') +
-      ' · 版本 ' + esc((state.health && state.health.version) || '0.2.0') +
+      ' · 版本 ' + esc((state.health && state.health.version) || '0.3.0') +
       ' · FFmpeg ' + (state.health && state.health.ffmpeg ? '已就绪' : '未检测到（部分合并/转码功能不可用）') + '</div>' +
     '</div>' +
     '<div class="field">' +
@@ -738,8 +748,9 @@ async function renderSettingsAbout() {
     '</div>' +
     '<div class="field">' +
       '<label>快捷键</label>' +
-      '<div class="desc"><code>Ctrl + Enter</code> 解析 · <code>Esc</code> 关闭弹窗 · <code>← / →</code> 切换媒体</div>' +
-    '</div>';
+      '<div class="desc"><code>Ctrl + Enter</code> 批量解析 · <code>Esc</code> 关闭弹窗 · <code>← / →</code> 切换媒体</div>' +
+    '</div><div class="field"><label>支持的平台</label><div id="platformStrip" class="platform-strip"></div></div>';
+  renderPlatformStrip();
   $$('#stabAbout [data-reveal]').forEach((node) =>
     node.addEventListener('click', () => reveal(node.dataset.reveal)),
   );
@@ -782,24 +793,7 @@ async function reveal(path) {
 /* ------------------------------------------------------------------ 主流程 */
 
 async function doParse() {
-  const text = $('#input').value.trim();
-  if (!text) return toast('请先粘贴分享链接或文案', 'warn', 1800);
-  state.loading = true;
-  renderResult();
-  try {
-    state.result = await api('/api/parse', {
-      method: 'POST',
-      body: { text, use_saved_config: $('#useSavedConfig').checked },
-    });
-    highlightPlatform((state.result.platform && state.result.platform.id) || null);
-    await loadHistory();
-  } catch (error) {
-    state.result = null;
-    toast(error.message, 'err', 6000);
-  } finally {
-    state.loading = false;
-    renderResult();
-  }
+  await startBatch($('#input').value.trim(), false);
 }
 
 async function cleanInput() {
@@ -843,10 +837,18 @@ async function loadSettings() {
 
 function bindInputEvents() {
   $('#parseBtn').addEventListener('click', doParse);
-  $('#downloadBtn').addEventListener('click', () => createTask({ text: $('#input').value.trim() }));
+  $('#downloadBtn').addEventListener('click', () => startBatch($('#input').value.trim(), true));
   $('#cleanBtn').addEventListener('click', cleanInput);
-  $('#clearBtn').addEventListener('click', () => {
+  $('#clearBtn').addEventListener('click', async () => {
+    if (state.batch && state.batch.status === 'running') await api('/api/batches/' + state.batch.id + '/cancel', { method: 'POST' }).catch((error) => toast(error.message, 'err'));
     $('#input').value = '';
+    state.batch = null;
+    state.selectedItem = null;
+    state.resultSource = '';
+    state.loading = false;
+    $('#batchPanel').hidden = true;
+    $('#parseBtn').disabled = false;
+    $('#downloadBtn').disabled = false;
     state.result = null;
     renderResult();
     detect();
@@ -873,6 +875,7 @@ function bindModalEvents() {
     renderSettingsGeneral();
     renderSettingsProxy();
     renderSettingsCookie();
+    renderSettingsNaming();
     await renderSettingsAbout();
   });
 
@@ -903,6 +906,7 @@ function bindModalEvents() {
       $$('.tabs .tab[data-stab]').forEach((node) => node.classList.toggle('active', node === tab));
       const name = tab.dataset.stab;
       $('#stabGeneral').hidden = name !== 'general';
+      $('#stabNaming').hidden = name !== 'naming';
       $('#stabProxy').hidden = name !== 'proxy';
       $('#stabCookie').hidden = name !== 'cookie';
       $('#stabAbout').hidden = name !== 'about';
@@ -917,7 +921,7 @@ async function handleClick(event) {
     const index = Number(mini.dataset.index);
     const media = state.result && state.result.media && state.result.media[index];
     if (!media) return;
-    if (mini.dataset.action === 'download') createTask({ text: $('#input').value.trim(), mediaIndex: index });
+    if (mini.dataset.action === 'download') createTask({ text: currentSource(), mediaIndex: index });
     if (mini.dataset.action === 'load') loadTilePreview(index);
     if (mini.dataset.action === 'open') openExternal(media.url);
     return;
@@ -938,10 +942,10 @@ async function handleClick(event) {
       resultAction.textContent = expanded ? '收起正文' : '展开全文';
       resultAction.setAttribute('aria-expanded', String(expanded));
     }
-    if (kind === 'download-all') createTask({ text: $('#input').value.trim() });
+    if (kind === 'download-all') createTask({ text: currentSource() });
     if (kind === 'copy-json') copyText(JSON.stringify(state.result, null, 2), 'JSON 已复制');
     if (kind === 'open-raw' && state.result && state.result.raw_url) openExternal(state.result.raw_url);
-    if (kind === 'reparse') doParse();
+    if (kind === 'reparse') startBatch(currentSource(), false);
     return;
   }
 
@@ -956,9 +960,9 @@ async function handleClick(event) {
       renderLightbox();
       return;
     }
-    if (kind === 'save') createTask({ text: $('#input').value.trim(), mediaIndex: index });
+    if (kind === 'save') createTask({ text: currentSource(), mediaIndex: index });
     if (kind === 'browser') {
-      if (state.desktop) createTask({ text: $('#input').value.trim(), mediaIndex: index });
+      if (state.desktop) createTask({ text: currentSource(), mediaIndex: index });
       else window.open(proxied(qualitySource(media), { download: true, filename: fileNameFor(media, index) }), '_blank');
     }
     if (kind === 'copy') copyText(qualitySource(media), '媒体链接已复制');
@@ -998,6 +1002,8 @@ async function handleClick(event) {
     const entry = state.history.find((item) => item.id === historyItem.dataset.id);
     if (entry) {
       state.result = entry;
+      state.resultSource = entry.raw_url;
+      setView('parse');
       highlightPlatform((entry.platform && entry.platform.id) || null);
       renderResult();
       toast('已载入历史记录', 'ok', 1600);
@@ -1103,6 +1109,222 @@ function bindToolbarEvents() {
   });
 }
 
+function currentSource() {
+  return state.resultSource || (state.result && state.result.raw_url) || $('#input').value.trim();
+}
+
+function setView(view) {
+  $('#workspace').dataset.view = view;
+  $('#pageTitle').textContent = { parse: '解析工作台', tasks: '下载管理', history: '历史记录' }[view];
+  $$('.nav-item[data-view]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.view === view);
+    if (button.dataset.view === view) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  $('#tabTasks').hidden = view !== 'tasks';
+  $('#tabHistory').hidden = view !== 'history';
+  $('#workspaceScroll').scrollTop = 0;
+  if (view === 'tasks') refreshTasks();
+  if (view === 'history') loadHistory();
+}
+
+async function startBatch(text, download) {
+  if (state.batch && state.batch.status === 'running') return toast('当前批次仍在解析，请先完成或取消', 'warn');
+  if (!text) return toast('请粘贴链接或分享文案', 'warn');
+  $('#parseBtn').disabled = true;
+  $('#downloadBtn').disabled = true;
+  try {
+    state.batch = await api('/api/batches', { method: 'POST', body: { text, download, use_saved_config: $('#useSavedConfig').checked } });
+    state.selectedItem = null;
+    state.result = null;
+    state.resultSource = '';
+    state.loading = true;
+    setView('parse');
+    renderBatch();
+    renderResult();
+  } catch (error) {
+    toast(error.message, 'err');
+    $('#parseBtn').disabled = false;
+    $('#downloadBtn').disabled = false;
+  }
+}
+
+function selectBatchItem(item) {
+  if (!item || item.status !== 'success') return;
+  closeLightbox();
+  state.selectedItem = item.id;
+  state.resultSource = item.url;
+  state.result = item.result;
+  state.loading = false;
+  renderResult();
+  renderBatch();
+}
+
+function renderBatch() {
+  const batch = state.batch;
+  if (!batch) return;
+  const panel = $('#batchPanel');
+  panel.hidden = false;
+  const completed = batch.items.filter((item) => !['pending', 'running'].includes(item.status)).length;
+  const failed = batch.items.filter((item) => item.status === 'error').length;
+  panel.innerHTML = '<div class="batch-head"><h2>本次解析 · ' + completed + ' / ' + batch.items.length + (failed ? ' · ' + failed + ' 条失败' : '') + '</h2>' +
+    (batch.status === 'running' ? '<button class="btn tiny ghost" data-batch-action="cancel">取消未完成</button>' :
+      (failed ? '<button class="btn tiny" data-batch-action="retry">重试失败项</button>' : '<span class="desc">点击卡片切换作品</span>')) + '</div>' +
+    '<div class="batch-list">' + batch.items.map((item, index) => {
+      const title = item.result && (item.result.title || item.result.content || '').split('\n')[0];
+      const status = { pending: '排队中', running: '正在解析…', success: '解析完成', error: '解析失败', cancelled: '已取消' }[item.status];
+      const platform = item.result && item.result.platform;
+      return '<button class="batch-item' + (state.selectedItem === item.id ? ' active' : '') + '" data-batch-item="' + item.id + '" data-status="' + item.status + '" title="' + esc(item.error || item.url) + '">' +
+        '<strong>' + (index + 1) + '. ' + esc(title || item.url) + '</strong><small>' + esc(item.error || ((platform ? platform.name + ' · ' : '') + status)) + '</small></button>';
+    }).join('') + '</div>';
+}
+
+async function refreshBatch() {
+  if (!state.batch || state.batch.status !== 'running' || state.batchChecking) return;
+  const batchId = state.batch.id;
+  state.batchChecking = true;
+  try {
+    const batch = await api('/api/batches/' + batchId);
+    if (!state.batch || state.batch.id !== batchId) return;
+    state.batch = batch;
+    if (!state.selectedItem) selectBatchItem(batch.items.find((item) => item.status === 'success'));
+    renderBatch();
+    if (batch.status !== 'running') {
+      state.loading = false;
+      $('#parseBtn').disabled = false;
+      $('#downloadBtn').disabled = false;
+      if (!state.result) renderResult();
+      await loadHistory();
+      await refreshTasks();
+    }
+  } catch (error) {
+    console.warn(error.message);
+  } finally {
+    state.batchChecking = false;
+  }
+}
+
+function bindWorkspaceEvents() {
+  $$('.nav-item[data-view]').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
+  $('#aboutBtn').addEventListener('click', () => { $('#settingsBtn').click(); $('[data-stab="about"]').click(); });
+  $('#externalParserBtn').addEventListener('click', () => {
+    if (state.desktop) window.location.assign('/external/douyin');
+    else openExternal('https://dy.kukutool.com/');
+  });
+  $('#batchPanel').addEventListener('click', async (event) => {
+    const item = event.target.closest('[data-batch-item]');
+    if (item) selectBatchItem(state.batch.items.find((entry) => entry.id === item.dataset.batchItem));
+    const action = event.target.closest('[data-batch-action]');
+    if (!action) return;
+    if (action.dataset.batchAction === 'retry') startBatch(state.batch.items.filter((entry) => entry.status === 'error').map((entry) => entry.url).join('\n'), false);
+    else {
+      try { await api('/api/batches/' + state.batch.id + '/cancel', { method: 'POST' }); await refreshBatch(); }
+      catch (error) { toast(error.message, 'err'); }
+    }
+  });
+}
+
+function renderSettingsNaming() {
+  const names = { platform: '平台', author: '作者', title: '标题', id: '作品 ID', date: '下载日期', time: '下载时间', 'index:03d': '序号 001', type: '媒体类型' };
+  $('#stabNaming').innerHTML = '<div class="field"><label for="folderTemplate">作品文件夹</label><input type="text" maxlength="200" spellcheck="false" id="folderTemplate" value="' + esc(state.settings.folder_template || '{platform}_{title}_{id}') + '" /></div>' +
+    '<div class="field"><label for="fileTemplate">媒体文件名</label><input type="text" maxlength="200" spellcheck="false" id="fileTemplate" value="' + esc(state.settings.file_template || '{index:03d}_{title}') + '" /></div>' +
+    '<p class="desc">先点选输入框，再点击元素插入。扩展名自动保留；不支持目录分隔符。作者由平台返回，缺失时使用“未知作者”。日期/时间指下载时间。</p>' +
+    '<div class="naming-elements">' + Object.entries(names).map(([key, label]) => '<button class="btn tiny" data-token="' + key + '">' + label + '</button>').join('') + '</div>' +
+    '<div class="naming-preview" id="namingPreview" role="status"></div><p class="desc">标题最多 40 字，生成名称最多 100 字；非法字符自动替换，重名加序号，不覆盖已有文件。实况视频额外加 _live。</p>' +
+    '<button class="btn primary" id="saveNaming">保存命名规则</button>';
+  let target = $('#fileTemplate');
+  let revision = 0;
+  const preview = async () => {
+    const current = ++revision;
+    try {
+      const result = await api('/api/naming/preview', { method: 'POST', body: { folder_template: $('#folderTemplate').value, file_template: $('#fileTemplate').value } });
+      if (revision === current) $('#namingPreview').textContent = result.folder + '\n  └ ' + result.file;
+    } catch (error) { if (revision === current) $('#namingPreview').textContent = error.message; }
+  };
+  ['#folderTemplate', '#fileTemplate'].forEach((selector) => {
+    $(selector).addEventListener('focus', () => { target = $(selector); });
+    $(selector).addEventListener('input', debounce(preview, 200));
+  });
+  $$('#stabNaming [data-token]').forEach((button) => button.addEventListener('click', () => {
+    target.setRangeText('{' + button.dataset.token + '}', target.selectionStart, target.selectionEnd, 'end');
+    target.focus(); preview();
+  }));
+  $('#saveNaming').addEventListener('click', async () => {
+    try {
+      state.settings = await api('/api/settings', { method: 'POST', body: { folder_template: $('#folderTemplate').value, file_template: $('#fileTemplate').value } });
+      toast('命名规则已保存，对新下载任务生效', 'ok');
+    } catch (error) { toast(error.message, 'err'); }
+  });
+  preview();
+}
+
+function updateViewer() {
+  const image = $('#lbStage img');
+  const viewport = $('#lbViewport');
+  if (!image || !image.naturalWidth) return;
+  const viewer = state.viewer;
+  const rotated = viewer.rotation % 180 !== 0;
+  const width = rotated ? image.naturalHeight : image.naturalWidth;
+  const height = rotated ? image.naturalWidth : image.naturalHeight;
+  viewer.fit = Math.min(1, viewport.clientWidth / width, viewport.clientHeight / height);
+  const scale = viewer.fit * viewer.zoom;
+  const maxX = Math.max(0, (width * scale - viewport.clientWidth) / 2);
+  const maxY = Math.max(0, (height * scale - viewport.clientHeight) / 2);
+  viewer.panX = Math.max(-maxX, Math.min(maxX, viewer.panX));
+  viewer.panY = Math.max(-maxY, Math.min(maxY, viewer.panY));
+  image.style.width = image.naturalWidth + 'px';
+  image.style.height = image.naturalHeight + 'px';
+  image.style.left = '50%'; image.style.top = '50%';
+  image.style.transform = 'translate(-50%, -50%) translate(' + viewer.panX + 'px,' + viewer.panY + 'px) rotate(' + viewer.rotation + 'deg) scale(' + scale + ')';
+  if ($('#zoomLabel')) $('#zoomLabel').textContent = Math.round(scale * 100) + '%';
+}
+
+function changeZoom(zoom) {
+  state.viewer.zoom = Math.max(0.1, Math.min(Math.max(20, 2 / state.viewer.fit), zoom));
+  updateViewer();
+}
+
+function bindViewerEvents() {
+  const viewport = $('#lbViewport');
+  let drag = null;
+  $('#lbStage').addEventListener('load', updateViewer, true);
+  $('#lbStage').addEventListener('dragstart', (event) => event.preventDefault());
+  $('#lbBar').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-viewer]');
+    if (!button) return;
+    const viewer = state.viewer;
+    if (button.dataset.viewer === 'in') changeZoom(viewer.zoom * 1.25);
+    if (button.dataset.viewer === 'out') changeZoom(viewer.zoom / 1.25);
+    if (button.dataset.viewer === 'actual') changeZoom(1 / viewer.fit);
+    if (button.dataset.viewer === 'rotate') {
+      const scale = viewer.fit * viewer.zoom;
+      viewer.rotation = (viewer.rotation + 90) % 360;
+      updateViewer();
+      changeZoom(scale / viewer.fit);
+    }
+    if (button.dataset.viewer === 'fit') { viewer.zoom = 1; viewer.panX = 0; viewer.panY = 0; updateViewer(); }
+  });
+  viewport.addEventListener('wheel', (event) => {
+    if (!$('#lbStage img')) return;
+    event.preventDefault();
+    changeZoom(state.viewer.zoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15));
+  }, { passive: false });
+  viewport.addEventListener('dblclick', () => changeZoom(state.viewer.zoom === 1 ? 1 / state.viewer.fit : 1));
+  viewport.addEventListener('pointerdown', (event) => {
+    if (!$('#lbStage img') || event.button !== 0) return;
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, panX: state.viewer.panX, panY: state.viewer.panY };
+    viewport.setPointerCapture(event.pointerId);
+  });
+  viewport.addEventListener('pointermove', (event) => {
+    if (!drag || drag.id !== event.pointerId) return;
+    state.viewer.panX = drag.panX + event.clientX - drag.x;
+    state.viewer.panY = drag.panY + event.clientY - drag.y;
+    updateViewer();
+  });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((name) => viewport.addEventListener(name, () => { drag = null; }));
+  window.addEventListener('resize', updateViewer);
+}
+
 async function init() {
   document.addEventListener('click', (event) => {
     const anchor = event.target.closest('a[href]');
@@ -1116,6 +1338,8 @@ async function init() {
   bindLightboxEvents();
   bindMediaFallback();
   bindToolbarEvents();
+  bindWorkspaceEvents();
+  bindViewerEvents();
   document.addEventListener('click', handleClick);
   renderEmpty();
   await checkService();
@@ -1124,6 +1348,7 @@ async function init() {
   await refreshTasks();
   setInterval(refreshTasks, 1200);
   setInterval(loadHistory, 20000);
+  setInterval(refreshBatch, 900);
 }
 
 init().catch((error) => {

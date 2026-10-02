@@ -16,6 +16,7 @@ from parsehub.types import LivePhotoRef, MultimediaParseResult
 
 from .platform_config import PlatformConfigBridge
 from .serialize import result_to_payload
+from .naming import apply_naming, DEFAULT_FILE, DEFAULT_FOLDER
 
 FINISHED_STATUSES = {"success", "partial", "error", "cancelled"}
 
@@ -234,6 +235,8 @@ class TaskManager:
         if index is not None:
             result = _pick_media(result, int(index))
         result = _apply_quality(result, str(options.get("quality") or "origin"))
+        apply_naming(result, task.payload, options.get("folder_template", DEFAULT_FOLDER),
+                     options.get("file_template", DEFAULT_FILE), int(index or 0))
 
         task.stage = "下载中"
 

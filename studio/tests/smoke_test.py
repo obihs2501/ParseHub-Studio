@@ -21,7 +21,7 @@ def main() -> int:
 
         page = client.get("/")
         check(page.status_code == 200 and "ParseHub" in page.text, "首页未正确返回")
-        for asset in ("/app.js", "/styles.css", "/favicon.svg"):
+        for asset in ("/app.js", "/styles.css", "/workspace.css", "/favicon.svg"):
             check(client.get(asset).status_code == 200, f"静态资源缺失: {asset}")
 
         platforms = client.get("/api/platforms").json()["platforms"]

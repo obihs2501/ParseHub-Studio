@@ -6,7 +6,9 @@ import json
 from pathlib import Path
 
 from platformdirs import user_config_dir, user_data_dir
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
+
+from .naming import DEFAULT_FILE, DEFAULT_FOLDER, validate_template
 
 APP_NAME = "ParseHubStudio"
 
@@ -42,8 +44,15 @@ class Settings(BaseModel):
     proxy_mode: str = "system"
     """网络代理: system 跟随系统, custom 自定义, none 直连"""
     proxy_url: str = ""
-    ffmpeg_dir: str = ""
     """proxy_mode 为 custom 时使用的代理地址"""
+    ffmpeg_dir: str = ""
+    folder_template: str = DEFAULT_FOLDER
+    file_template: str = DEFAULT_FILE
+
+    @field_validator("folder_template", "file_template")
+    @classmethod
+    def valid_template(cls, value):
+        return validate_template(value)
 
 
 class SettingsStore:

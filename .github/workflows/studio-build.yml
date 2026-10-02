@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [master, main]
-    paths: ["studio/**", "src/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
+    paths: ["studio/**", "src/**", "test/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
   pull_request:
-    paths: ["studio/**", "src/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
+    paths: ["studio/**", "src/**", "test/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
 
 permissions:
   contents: read
@@ -39,6 +39,7 @@ jobs:
       - run: node tests/frontend_test.cjs
       - run: uv run python tests/smoke_test.py
       - run: uv run python -m unittest discover -s tests -p "test_*.py" -v
+      - run: uv run python -m unittest discover -s ../test -p "test_core_offline.py" -v
       - run: uv run python tests/sidecar_check.py
 
   windows:
@@ -154,14 +155,18 @@ jobs:
           path: release
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: studio-v0.2.0-${{ github.run_number }}
+          tag_name: studio-v0.3.0-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: ParseHub Studio 0.2.0 Lite · Build ${{ github.run_number }}
+          name: ParseHub Studio 0.3.0 Workspace · Build ${{ github.run_number }}
           prerelease: true
           body: |
             Windows 10/11 x64 · Tauri 2 + bundled Python sidecar · Lightweight build.
 
-            - HD image previews, larger uncropped gallery, expandable text, original-resolution lightbox.
+            - Redesigned sidebar workspace with a single scrollable content area, separate downloads/history, and light/dark themes.
+            - Mixed-platform batch parsing (50 links, 3 concurrent), per-item results, cancellation and retry.
+            - Original-resolution image viewer: zoom, pan, 1:1, fit, rotate and keyboard navigation.
+            - Element-based folder/file naming with previews, safe filenames and collision protection.
+            - Highest available Douyin variant; optional isolated KuKuTool web window with manual link entry (no automatic result import).
             - Weibo image CDN failover without lowering download quality; Douyin short-link redirect fix.
             - Reduced false service-disconnection alerts and non-blocking proxy/metadata work.
             - No bundled FFmpeg, OpenCV, NumPy or pydub. Uses your installed FFmpeg/FFprobe via PATH or Settings.

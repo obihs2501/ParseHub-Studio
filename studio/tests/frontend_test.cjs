@@ -5,7 +5,7 @@ const vm = require('node:vm');
 
 const elements = new Map();
 const element = (selector) => {
-  if (!elements.has(selector)) elements.set(selector, { textContent: '', innerHTML: '', dataset: {}, hidden: true });
+  if (!elements.has(selector)) elements.set(selector, { textContent: '', innerHTML: '', dataset: {}, hidden: true, focus() {}, style: {}, clientWidth: 1000, clientHeight: 700 });
   return elements.get(selector);
 };
 const context = vm.createContext({
@@ -26,6 +26,19 @@ async function main() {
   assert.ok(element('#lbStage').innerHTML.includes('/api/media?'));
   assert.ok(element('#lbStage').innerHTML.includes('original.jpg'));
   assert.ok(!element('#lbStage').innerHTML.includes('tiny.jpg'));
+  assert.ok(element('#lbBar').innerHTML.includes('data-viewer="actual"'));
+  element('#lbStage img').naturalWidth = 2000;
+  element('#lbStage img').naturalHeight = 1400;
+  vm.runInContext('updateViewer()', context);
+  assert.equal(element('#zoomLabel').textContent, '50%');
+  vm.runInContext('changeZoom(1 / state.viewer.fit)', context);
+  assert.equal(element('#zoomLabel').textContent, '100%');
+  vm.runInContext('state.viewer.panX=9999; state.viewer.panY=-9999; updateViewer()', context);
+  assert.equal(vm.runInContext('state.viewer.panX', context), 500);
+  assert.equal(vm.runInContext('state.viewer.panY', context), -350);
+  vm.runInContext("state.resultSource='https://weibo.com/correct';", context);
+  element('#input').value = 'https://douyin.com/different';
+  assert.equal(vm.runInContext('currentSource()', context), 'https://weibo.com/correct');
   await vm.runInContext('checkService()', context);
   assert.equal(element('#serviceAlert').hidden, true);
   await vm.runInContext('checkService()', context);
@@ -36,7 +49,7 @@ async function main() {
   await vm.runInContext('checkService()', context);
   assert.equal(element('#serviceAlert').hidden, true);
   assert.equal(vm.runInContext('state.serviceFailures', context), 0);
-  console.log('HD preview, original lightbox, service hysteresis and recovery passed');
+  console.log('HD preview, original lightbox, zoom/pan, selected source and service recovery passed');
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

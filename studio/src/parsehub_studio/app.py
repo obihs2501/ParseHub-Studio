@@ -16,24 +16,25 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
-from starlette.concurrency import run_in_threadpool
-
 from parsehub import ParseHub
 from parsehub.cli_config import default_config_dir
 from parsehub.config import GlobalConfig
 from parsehub.errors import ParseError, UnknownPlatform
-from parsehub.utils.helpers import UA, match_url
+from parsehub.utils.helpers import match_url
 from parsehub.utils.media_network import media_candidates, media_headers
+from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
+from . import __version__
+from .batches import BatchManager, extract_links
 from .history import HistoryStore
+from .naming import TOKENS, naming_values, render_name, validate_template
 from .network import resolve_default_proxy
 from .platform_config import PlatformConfigBridge
+from .security import install_security
 from .serialize import result_to_payload
 from .settings import Settings, SettingsStore
 from .tasks import TaskManager
-from . import __version__
-from .security import install_security
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
@@ -105,6 +106,19 @@ class SettingsPayload(StrictModel):
     proxy_mode: str | None = None
     proxy_url: str | None = None
     ffmpeg_dir: str | None = None
+    folder_template: str | None = None
+    file_template: str | None = None
+
+
+class BatchRequest(StrictModel):
+    text: str = Field(min_length=1, max_length=30000)
+    use_saved_config: bool = True
+    download: bool = False
+
+
+class NamingRequest(StrictModel):
+    folder_template: str
+    file_template: str
 
 
 class AppContext:
@@ -119,6 +133,7 @@ class AppContext:
         self._proxy_cache: tuple[float, str | None] = (0, None)
         self._original_path = os.environ.get("PATH", "")
         self.tasks = TaskManager(self.bridge, on_success=self._remember)
+        self.batches = BatchManager(self.parse_link, self.queue_download)
         self.apply_settings()
 
     def apply_settings(self) -> None:
@@ -133,6 +148,20 @@ class AppContext:
             proxy = await run_in_threadpool(resolve_default_proxy, self.settings.proxy_mode, self.settings.proxy_url)
             self._proxy_cache = (time.monotonic(), proxy)
         return proxy
+
+    async def parse_link(self, text: str, options: dict) -> dict:
+        platform = self.parsehub.get_platform(text)
+        proxy, cookie = options.get("proxy"), options.get("cookie")
+        if options.get("use_saved_config", True):
+            proxy, _, cookie = self.bridge.resolve(platform.id if platform else None, parse_proxy=proxy,
+                                                   cookie=cookie, default_proxy=options.get("default_proxy"))
+        result = await self.parsehub.parse(text, proxy=proxy, cookie=cookie)
+        payload = result_to_payload(result)
+        self.history.add(payload)
+        return payload
+
+    def queue_download(self, text: str, options: dict):
+        return self.tasks.create(text, {**options, "text": text})
 
     def update_settings(self, payload: SettingsPayload) -> Settings:
         data = self.settings.model_dump()
@@ -158,6 +187,7 @@ class AppContext:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
+    await app.state.ctx.batches.shutdown()
     await app.state.ctx.tasks.shutdown()
 
 
@@ -251,6 +281,41 @@ def create_app(session_token: str | None = None) -> FastAPI:
         return result_payload
 
     # ---------------------------------------------------------------- 下载任务
+    @app.post("/api/batches")
+    async def start_batch(request: Request, payload: BatchRequest):
+        context = ctx(request)
+        try:
+            links = await run_in_threadpool(extract_links, payload.text)
+            options = {**payload.model_dump(), "default_proxy": await context.default_proxy(),
+                       "path": str(context.settings.default_save_dir), "connections": context.settings.connections,
+                       "save_metadata": context.settings.save_metadata, "quality": context.settings.download_quality,
+                       "folder_template": context.settings.folder_template, "file_template": context.settings.file_template}
+            return context.batches.create(links, options)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get("/api/batches/{batch_id}")
+    async def get_batch(request: Request, batch_id: str):
+        batch = ctx(request).batches.batches.get(batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="该批次已清理，请重新解析")
+        return batch
+
+    @app.post("/api/batches/{batch_id}/cancel")
+    async def cancel_batch(request: Request, batch_id: str):
+        ctx(request).batches.cancel(batch_id)
+        return {"ok": True}
+
+    @app.post("/api/naming/preview")
+    async def preview_naming(payload: NamingRequest):
+        values = naming_values({"platform": {"name": "抖音"}, "author": "示例作者", "title": "山间日落",
+                                "post_id": "7691874698522529051"})
+        try:
+            return {"folder": render_name(payload.folder_template, values),
+                    "file": render_name(payload.file_template, values) + ".jpg", "tokens": TOKENS}
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
     @app.get("/api/tasks")
     async def list_tasks(request: Request) -> dict[str, Any]:
         return {"tasks": ctx(request).tasks.list()}
@@ -259,6 +324,8 @@ def create_app(session_token: str | None = None) -> FastAPI:
     async def create_task(request: Request, payload: TaskRequest) -> dict[str, Any]:
         context = ctx(request)
         options = payload.model_dump()
+        options["folder_template"] = context.settings.folder_template
+        options["file_template"] = context.settings.file_template
         if options.get("path") is None:
             options["path"] = str(context.settings.default_save_dir)
         if options.get("save_metadata") is None:
@@ -334,6 +401,12 @@ def create_app(session_token: str | None = None) -> FastAPI:
 
     @app.post("/api/settings")
     async def update_settings(request: Request, payload: SettingsPayload) -> dict[str, Any]:
+        try:
+            for template in (payload.folder_template, payload.file_template):
+                if template is not None:
+                    validate_template(template)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
         return ctx(request).update_settings(payload).model_dump(mode="json")
 
     # ---------------------------------------------------------------- 历史

@@ -305,7 +305,7 @@ class TestDouyinStorySupport(unittest.TestCase):
 
         self.assertEqual(info["video_url"], "https://cdn.example/story-default.mp4")
         self.assertEqual(info["thumb_url"], "https://cdn.example/thumb.jpg")
-        self.assertEqual(info["duration"], 9682)
+        self.assertEqual(info["duration"], 10)
 
 
 class TestDoubanTopicParsing(unittest.TestCase):

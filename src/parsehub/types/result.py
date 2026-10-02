@@ -3,7 +3,7 @@ import json
 import shutil
 import time
 from abc import ABC
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, ClassVar
@@ -47,6 +47,7 @@ class ParseResult(ABC):  # noqa: B024
         self.content = content.strip()
         self.media = media
         self.platform = platform
+        self.file_name_builder: Callable | None = None
         self.name = slugify(
             self.title or self.content, allow_unicode=True, max_length=50, lowercase=False
         ).strip() or str(time.time_ns())
@@ -126,7 +127,9 @@ class ParseResult(ABC):  # noqa: B024
 
             try:
                 save_path = (
-                    output_dir.joinpath(f"{self.name}.{media.ext}")
+                    output_dir.joinpath(self.file_name_builder(index, media, False))
+                    if self.file_name_builder
+                    else output_dir.joinpath(f"{self.name}.{media.ext}")
                     if is_single
                     else output_dir.joinpath(f"{index:03d}_{self.name}.{media.ext}")
                 )
@@ -163,7 +166,9 @@ class ParseResult(ABC):  # noqa: B024
                     if media.video_url:
                         try:
                             save_path = (
-                                output_dir.joinpath(f"{self.name}_video.{media.video_ext}")
+                                output_dir.joinpath(self.file_name_builder(index, media, True))
+                                if self.file_name_builder
+                                else output_dir.joinpath(f"{self.name}_video.{media.video_ext}")
                                 if is_single
                                 else output_dir.joinpath(f"{index:03d}_{self.name}_video.{media.video_ext}")
                             )
@@ -230,10 +235,13 @@ class ParseResult(ABC):  # noqa: B024
         save_dir = Path(path) if path else GlobalConfig.default_save_dir
         output_dir = save_dir.joinpath(self.name)
         counter = 2
-        while output_dir.exists():
-            output_dir = save_dir.joinpath(f"{self.name}_{counter}")
-            counter += 1
-        output_dir.mkdir(parents=True, exist_ok=True)
+        while True:
+            try:
+                output_dir.mkdir(parents=True, exist_ok=False)
+                break
+            except FileExistsError:
+                output_dir = save_dir.joinpath(f"{self.name}_{counter}")
+                counter += 1
 
         if save_metadata:
             async with aiofiles.open(output_dir.joinpath("metadata.json"), "w", encoding="utf-8") as f:

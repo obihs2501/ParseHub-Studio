@@ -33,6 +33,8 @@ class WeiboParser(BaseParser):
             )
 
         data = weibo.data
+        self._author = (getattr(data, "user", None) or {}).get("screen_name", "")
+        self._post_id = str(data.id or data.mid or "")
         text = self.f_text(data.content)
         media: list[VideoRef | ImageRef | LivePhotoRef | AniRef] = []
 
@@ -100,6 +102,12 @@ class WeiboParser(BaseParser):
         # text = re.sub(r"<[^>]+>", " ", text)
         text = self.hashtag_handler(text or "")
         return text.strip()
+
+    async def parse(self, url: str):
+        result = await super().parse(url)
+        result.author = getattr(self, "_author", "")
+        result.post_id = getattr(self, "_post_id", "")
+        return result
 
     @staticmethod
     def hashtag_handler(desc: str) -> str:
