@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+downloads/
+dist/
+build/
+node_modules/
+src-tauri/target/
+src-tauri/binaries/*.exe
+src-tauri/resources/ffmpeg/
+src-tauri/gen/
+dist-wheel/

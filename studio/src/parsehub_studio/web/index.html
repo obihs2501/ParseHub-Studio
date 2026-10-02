@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ParseHub Studio</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">P</span>
+        <span class="brand-text"><strong>ParseHub</strong><em>Studio</em></span>
+      </div>
+      <div class="platform-strip" id="platformStrip" aria-label="支持的平台"></div>
+      <div class="topbar-actions">
+        <span class="service-status" id="serviceStatus" role="status">连接中…</span>
+        <button class="icon-btn" id="themeBtn" title="切换主题" aria-label="切换主题">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+        <button class="icon-btn" id="settingsBtn" title="设置" aria-label="设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-2.87 1.2V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-2.87-1.2l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3 15a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.13l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 10 4.6V4a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 2.87 1.2l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 21 11h.09a2 2 0 1 1 0 4H21z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="service-alert" id="serviceAlert" role="alert" hidden></div>
+    <main class="layout">
+      <section class="column-main">
+        <div class="panel input-panel">
+          <div class="panel-head">
+            <span class="panel-title">粘贴分享链接</span>
+            <span class="detect-chip" id="detectChip">等待输入</span>
+          </div>
+          <textarea id="input" rows="3" placeholder="支持 17+ 平台：小红书 / 抖音 / 微博 / 知乎 / B站 / X / Instagram …"></textarea>
+          <div class="input-actions">
+            <label class="check" title="使用已保存的平台代理与 Cookie">
+              <input type="checkbox" id="useSavedConfig" checked /><span>使用已保存的代理 / Cookie</span>
+            </label>
+            <div class="spacer"></div>
+            <button class="btn ghost" id="clearBtn">清空</button>
+            <button class="btn ghost" id="cleanBtn" title="从分享文案中提取并清洗链接">清洗链接</button>
+            <button class="btn" id="parseBtn">解析</button>
+            <button class="btn primary" id="downloadBtn">解析并下载</button>
+          </div>
+        </div>
+
+        <div class="panel result-panel" id="resultPanel"></div>
+      </section>
+
+      <aside class="column-side">
+        <div class="panel side-panel">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="tasks" role="tab">下载任务<span class="badge" id="taskBadge" hidden></span></button>
+            <button class="tab" data-tab="history" role="tab">历史记录</button>
+          </div>
+          <div class="tab-body" id="tabTasks"></div>
+          <div class="tab-body" id="tabHistory" hidden></div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div class="modal" id="settingsModal" hidden>
+    <div class="modal-card wide">
+      <div class="modal-head">
+        <h3>设置</h3>
+        <button class="icon-btn" data-close="settingsModal" title="关闭">&times;</button>
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-stab="general" role="tab">通用</button>
+        <button class="tab" data-stab="proxy" role="tab">代理</button>
+        <button class="tab" data-stab="cookie" role="tab">Cookie</button>
+        <button class="tab" data-stab="about" role="tab">关于</button>
+      </div>
+      <div class="modal-body">
+        <div class="stab" id="stabGeneral"></div>
+        <div class="stab" id="stabProxy" hidden></div>
+        <div class="stab" id="stabCookie" hidden></div>
+        <div class="stab" id="stabAbout" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="pickerModal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>选择下载目录</h3>
+        <button class="icon-btn" data-close="pickerModal" title="关闭">&times;</button>
+      </div>
+      <div class="picker-path" id="pickerPath"></div>
+      <div class="picker-list" id="pickerList"></div>
+      <div class="modal-foot">
+        <button class="btn ghost" id="pickerUp">上一级</button>
+        <div class="spacer"></div>
+        <button class="btn primary" id="pickerConfirm">选择当前目录</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="lightbox" id="lightbox" hidden>
+    <button class="lb-close" id="lbClose" title="关闭">&times;</button>
+    <button class="lb-nav prev" id="lbPrev" title="上一个">&#8249;</button>
+    <div class="lb-stage" id="lbStage"></div>
+    <button class="lb-nav next" id="lbNext" title="下一个">&#8250;</button>
+    <div class="lb-bar" id="lbBar"></div>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

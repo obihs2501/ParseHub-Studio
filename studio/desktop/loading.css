@@ -1,0 +1,11 @@
+:root { color-scheme: dark; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #0d111a; color: #edf3ff; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 30%, #192c49, transparent 65%); }
+main { max-width: 620px; padding: 36px; text-align: center; }
+.mark { margin: auto; width: 72px; height: 72px; border-radius: 22px; background: #63d5c3; color: #10252c; font-size: 48px; font-weight: 800; }
+h1 { margin-top: 28px; font-size: 32px; } h1 span { color: #63d5c3; font-weight: 400; }
+p { line-height: 1.8; color: #b2bfd4; overflow-wrap: anywhere; } small { color: #71839e; }
+.progress { margin: 28px auto; width: 180px; height: 3px; background: #2a3b50; overflow: hidden; border-radius: 4px; }
+.progress::after { content: ""; display: block; width: 40%; height: 100%; background: #63d5c3; animation: slide 1.4s ease-in-out infinite alternate; }
+.help { display: none; } body[data-failed] .help { display: block; } body[data-failed] .progress { display: none; }
+@keyframes slide { to { transform: translateX(150%); } }
+@media (prefers-reduced-motion: reduce) { .progress::after { animation: none; width: 100%; } }

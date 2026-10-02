@@ -1,0 +1,173 @@
+name: Build ParseHub Studio
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths: ["studio/**", "src/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
+  pull_request:
+    paths: ["studio/**", "src/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Offline API and sidecar tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: studio
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: uv sync --locked
+      - run: node --check src/parsehub_studio/web/app.js
+      - run: uv run python tests/smoke_test.py
+      - run: uv run python -m unittest discover -s tests -p "test_*.py" -v
+      - run: uv run python tests/sidecar_check.py
+
+  windows:
+    name: Windows x64 installer and portable
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: studio
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: studio/src-tauri -> target
+      - name: Install locked dependencies
+        run: |
+          uv sync --locked --group build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm ci
+      - name: Prepare FFmpeg resources
+        run: |
+          choco install ffmpeg --version=8.0.1 -y --no-progress
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force src-tauri/resources/ffmpeg | Out-Null
+          $root = Join-Path $env:ChocolateyInstall 'lib/ffmpeg/tools'
+          foreach ($name in @('ffmpeg.exe', 'ffprobe.exe')) {
+            $binary = Get-ChildItem -LiteralPath $root -Recurse -Filter $name | Select-Object -First 1
+            if (!$binary) { throw "Missing $name" }
+            Copy-Item -LiteralPath $binary.FullName -Destination src-tauri/resources/ffmpeg/
+          }
+          Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { $_.Name -match '^(LICENSE|COPYING|README)' } | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination src-tauri/resources/ffmpeg/
+          }
+          & ./src-tauri/resources/ffmpeg/ffmpeg.exe -version | Out-File src-tauri/resources/ffmpeg/BUILD.txt
+      - name: Build Python sidecar
+        run: |
+          uv run python packaging/make_icon.py
+          uv run pyinstaller --noconfirm --clean packaging/parsehub_studio.spec
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force src-tauri/binaries | Out-Null
+          Copy-Item -LiteralPath dist/parsehub-sidecar.exe -Destination src-tauri/binaries/parsehub-sidecar-x86_64-pc-windows-msvc.exe
+      - name: Test frozen sidecar (no Python imports from source)
+        run: uv run python tests/sidecar_check.py --executable dist/parsehub-sidecar.exe
+      - name: Build Tauri NSIS installer
+        run: npm run desktop:build -- --target x86_64-pc-windows-msvc
+      - name: Prepare portable app
+        run: |
+          New-Item -ItemType Directory -Force dist/ParseHubStudio-portable/resources/ffmpeg | Out-Null
+          Copy-Item src-tauri/target/x86_64-pc-windows-msvc/release/parsehub-studio.exe dist/ParseHubStudio-portable/ParseHubStudio.exe
+          Copy-Item dist/parsehub-sidecar.exe dist/ParseHubStudio-portable/
+          Copy-Item src-tauri/resources/ffmpeg/* dist/ParseHubStudio-portable/resources/ffmpeg/
+          Copy-Item src-tauri/resources/THIRD_PARTY.md dist/ParseHubStudio-portable/resources/
+          Copy-Item ../LICENSE dist/ParseHubStudio-portable/
+          Copy-Item README.md dist/ParseHubStudio-portable/
+      - name: Smoke test real desktop WebView and bundled sidecar
+        run: |
+          $env:PARSEHUB_DESKTOP_SMOKE_TEST = '1'
+          $process = Start-Process -FilePath (Resolve-Path dist/ParseHubStudio-portable/ParseHubStudio.exe) -PassThru -WindowStyle Hidden
+          if (!$process.WaitForExit(180000)) {
+            $process.Kill()
+            throw 'Desktop startup timed out'
+          }
+          if ($process.ExitCode -ne 0) { throw "Desktop startup failed: $($process.ExitCode)" }
+      - name: Collect release files and checksums
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe release/
+          Compress-Archive -Path dist/ParseHubStudio-portable -DestinationPath release/ParseHubStudio-windows-x64-portable.zip
+          Get-ChildItem -LiteralPath release -File | ForEach-Object {
+            $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
+            "$($hash.Hash.ToLower())  $($_.Name)"
+          } | Out-File -Encoding utf8 release/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ParseHubStudio-windows-x64
+          path: studio/release/*
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-lockfile
+          path: studio/src-tauri/Cargo.lock
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics
+          path: |
+            studio/build/parsehub_studio/warn-*.txt
+            ~/AppData/Local/io.github.obihs2501.parsehubstudio/sidecar.log
+
+  release:
+    name: Publish tested Windows binaries
+    if: github.event_name != 'pull_request'
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ParseHubStudio-windows-x64
+          path: release
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: studio-v0.1.0-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: ParseHub Studio 0.1.0 · Build ${{ github.run_number }}
+          prerelease: true
+          body: |
+            Windows 10/11 x64 · Tauri 2 + bundled Python sidecar + FFmpeg.
+
+            - Install: download the `setup.exe` file. WebView2 is installed automatically if missing (Internet required).
+            - Portable: extract the entire ZIP, then run `ParseHubStudio.exe`. Requires Microsoft Edge WebView2 Runtime.
+            - No Python, Node.js or Rust installation needed. No local compilation needed.
+            - Unsigned preview build: Windows SmartScreen may show a reputation warning.
+            - API, frozen sidecar lifecycle and real Tauri WebView startup are tested before publishing.
+          files: release/*
+          fail_on_unmatched_files: true

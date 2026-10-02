@@ -1,0 +1,15 @@
+[package]
+name = "parsehub-studio"
+version = "0.1.0"
+description = "ParseHub Studio desktop shell"
+authors = ["ParseHub Studio contributors"]
+edition = "2021"
+license = "MIT"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }

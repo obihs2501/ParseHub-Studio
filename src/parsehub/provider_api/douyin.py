@@ -1089,8 +1089,8 @@ class DouyinMobileCrawler:
         finally:
             if close_client:
                 await client.aclose()
-        if len(devices) < count:
-            raise ParseError(f"注册抖音移动端设备池失败: 仅获取到 {len(devices)}/{count} 组设备（{last_error}）")
+        if not devices:
+            raise ParseError(f"注册抖音移动端设备池失败: {last_error}")
         return devices
 
     @classmethod

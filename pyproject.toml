@@ -67,7 +67,7 @@ Issues = "https://github.com/z-mio/parsehub/issues"
 
 [tool.ruff]
 line-length = 120
-exclude = ["test/_*.py"]
+exclude = ["test/_*.py", "studio"]
 
 [tool.ruff.lint]
 select = [
@@ -87,7 +87,7 @@ ignore = [
 [tool.mypy]
 python_version = "3.12"
 files = ["./"]
-exclude = ["test"]
+exclude = ["test", "studio"]
 ignore_missing_imports = true
 warn_return_any = true
 warn_unused_ignores = true

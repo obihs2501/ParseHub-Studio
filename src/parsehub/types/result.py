@@ -106,6 +106,7 @@ class ParseResult(ABC):  # noqa: B024
         is_single = not isinstance(self.media, Sequence)
 
         result_list: list[AnyMediaFile] = []
+        errors: list[str] = []
 
         for i, media in enumerate(media_list):
             dl_progress = None
@@ -139,8 +140,8 @@ class ParseResult(ABC):  # noqa: B024
                     connections=connections,
                 )
             except Exception as e:
-                shutil.rmtree(output_dir, ignore_errors=True)
-                raise DownloadError(f"下载失败: {e}") from e
+                errors.append(f"第 {index} 个媒体下载失败: {e}")
+                continue
 
             mf: AnyMediaFile
             match media:
@@ -167,8 +168,7 @@ class ParseResult(ABC):  # noqa: B024
                                 connections=connections,
                             )
                         except Exception as e:
-                            shutil.rmtree(output_dir, ignore_errors=True)
-                            raise DownloadError(f"LivePhoto 视频下载失败: {e}") from e
+                            errors.append(f"第 {index} 个媒体 LivePhoto 视频下载失败: {e}")
                         else:
                             mf.video_path = vf
 
@@ -182,8 +182,11 @@ class ParseResult(ABC):  # noqa: B024
                     *callback_args,
                 )
 
+        if not result_list:
+            raise DownloadError("下载失败：" + "；".join(errors) if errors else "没有可下载的媒体")
+
         result_media = result_list[0] if is_single else result_list
-        return DownloadResult(result_media, output_dir)
+        return DownloadResult(result_media, output_dir, errors=errors)
 
     async def download(
         self,
@@ -239,7 +242,6 @@ class ParseResult(ABC):  # noqa: B024
                 connections=connections,
             )
         except Exception as e:
-            shutil.rmtree(output_dir, ignore_errors=True)
             raise e
 
     def download_sync(
@@ -380,7 +382,12 @@ class RichTextParseResult(ParseResult):
 
 
 class DownloadResult:
-    def __init__(self, media: AnyMediaFile | Sequence[AnyMediaFile], output_dir: str | Path):
+    def __init__(
+        self,
+        media: AnyMediaFile | Sequence[AnyMediaFile],
+        output_dir: str | Path,
+        errors: Sequence[str] | None = None,
+    ):
         """
         下载结果
         :param media: 本地媒体路径
@@ -388,6 +395,7 @@ class DownloadResult:
         """
         self.media = media
         self.output_dir = Path(output_dir).resolve()
+        self.errors = list(errors or [])
 
     def delete(self) -> None:
         try:

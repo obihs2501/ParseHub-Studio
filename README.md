@@ -1,3 +1,8 @@
+> **ParseHub Studio 桌面版**：基于 Tauri 2 + Python sidecar 的可视化解析、预览与下载工具。
+> [下载安装包](https://github.com/obihs2501/ParseHub-Studio/releases) · [桌面版说明](studio/README.md) · [云端构建](https://github.com/obihs2501/ParseHub-Studio/actions/workflows/studio-build.yml)
+>
+> 本仓库保留 [z-mio/ParseHub](https://github.com/z-mio/ParseHub) 上游解析库和 MIT 许可证。以下为上游库说明。
+
 <div align="center">
 
 # 🔗 ParseHub
