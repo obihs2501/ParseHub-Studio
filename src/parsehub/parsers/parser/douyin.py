@@ -181,16 +181,23 @@ def remove_video_watermark(url: str) -> str:
     return url.replace("playwm", "play")
 
 
+def _first_http_url(address: dict) -> str | None:
+    for url in address.get("url_list") or []:
+        if isinstance(url, str) and url.startswith(("https://", "http://")):
+            return url
+    return None
+
+
 def _p_play_addr(video_data: dict) -> tuple[str | None, int, int]:
-    play_addr = video_data["play_addr"]
-    url_list = play_addr["url_list"]
-    if not url_list:
+    play_addr = video_data.get("play_addr") or {}
+    url = _first_http_url(play_addr)
+    if not url:
         return None, 0, 0
-    return url_list[0], play_addr.get("width", 0), play_addr.get("height", 0)
+    return url, play_addr.get("width", 0), play_addr.get("height", 0)
 
 
-def _p_bit_rates(video_data: dict, filter_bytevc1: bool = False) -> tuple[str, int, int]:
-    bit_rates: list = video_data.get("bit_rate", [])
+def _p_bit_rates(video_data: dict, filter_bytevc1: bool = False) -> tuple[str | None, int, int]:
+    bit_rates: list = [item for item in (video_data.get("bit_rate") or []) if isinstance(item, dict)]
     if filter_bytevc1:
         bit_rates = list(filter(lambda i: i.get("is_bytevc1", 0) == 0, bit_rates))
     bit_rates.sort(
@@ -201,37 +208,30 @@ def _p_bit_rates(video_data: dict, filter_bytevc1: bool = False) -> tuple[str, i
         ),
         reverse=True,
     )
-    best_quality = bit_rates[0]
-
-    play_addr = best_quality.get("play_addr", {})
-    url_list = play_addr.get("url_list", [])
-    return url_list[0], play_addr.get("width", 0), play_addr.get("height", 0)
+    for best_quality in bit_rates:
+        play_addr = best_quality.get("play_addr", {})
+        url = _first_http_url(play_addr)
+        if url:
+            return url, play_addr.get("width", 0), play_addr.get("height", 0)
+    return None, 0, 0
 
 
 def parse_video_info(video_data: dict) -> dict:
-    candidates = []
-    addresses = [(video_data.get("play_addr") or {}, 0)]
-    addresses.extend(
-        (item.get("play_addr") or {}, item.get("bit_rate", 0))
-        for item in (video_data.get("bit_rate") or [])
-        if isinstance(item, dict)
-    )
-    for address, bitrate in addresses:
-        urls = [
-            url
-            for url in (address.get("url_list") or [])
-            if isinstance(url, str) and url.startswith(("https://", "http://"))
-        ]
-        if urls:
-            width = int(address.get("width") or video_data.get("width") or 0)
-            height = int(address.get("height") or video_data.get("height") or 0)
-            candidates.append(
-                (width * height, int(address.get("data_size") or 0), int(bitrate or 0), urls[0], width, height)
-            )
-    if not candidates:
+    # app 接口会带 is_bytevc1，其顶层 play_addr 就是原画母带；bit_rate[] 是抖音转码档位
+    # （常为 bytevc1/bytevc2，体积更小、画质更差）。web 接口没有该字段，顶层 play_addr 只是
+    # 低清自适应预览，真正的档位在 bit_rate[] 里。因此按接口类型区分取流来源。
+    is_app = video_data.get("is_bytevc1", None) is not None
+    if is_app:
+        url, width, height = _p_play_addr(video_data)
+        if not url:
+            url, width, height = _p_bit_rates(video_data, True)
+    else:
+        url, width, height = _p_bit_rates(video_data)
+        if not url:
+            url, width, height = _p_play_addr(video_data)
+    if not url:
         raise ParseError("抖音未返回可用视频地址")
-    _, _, _, best_url, width, height = max(candidates, key=lambda item: item[:3])
-    video_url = remove_video_watermark(best_url)
+    video_url = remove_video_watermark(url)
 
     cover = video_data.get("cover", {})
     thumb_url_list = cover.get("url_list", [])

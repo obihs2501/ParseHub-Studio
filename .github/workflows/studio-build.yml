@@ -162,9 +162,9 @@ jobs:
           path: release
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: studio-v0.4.0-${{ github.run_number }}
+          tag_name: studio-v0.4.1-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: ParseHub Studio 0.4.0 · Build ${{ github.run_number }}
+          name: ParseHub Studio 0.4.1 · Build ${{ github.run_number }}
           prerelease: true
           body: |
             Windows 10/11 x64 · Tauri 2 + bundled Python sidecar · Lightweight build.
@@ -182,6 +182,7 @@ jobs:
             - Per-platform Cookie pools with rotation and manual parser-site bookmarks; credentials are never sent to bookmarked sites.
             - Resolution, author and post information; improved Weibo history covers and Windows compatibility tests.
             - Highest available Douyin variant; optional isolated KuKuTool web window with manual link entry (no automatic result import).
+            - Fix Douyin original-quality downloads: the app/mobile interface's top-level `play_addr` (the original master) is preferred again instead of transcoded bytevc1/bytevc2 gears, restoring the full-resolution stream.
             - Weibo image CDN failover without lowering download quality; Douyin short-link redirect fix.
             - Reduced false service-disconnection alerts and non-blocking proxy/metadata work.
             - No bundled FFmpeg, OpenCV, NumPy or pydub. Uses your installed FFmpeg/FFprobe via PATH or Settings.

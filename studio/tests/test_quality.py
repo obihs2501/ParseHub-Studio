@@ -64,6 +64,58 @@ class DouyinQualityTests(unittest.TestCase):
         )
         self.assertEqual(result["video_url"], "https://example.com/original")
 
+    def test_app_interface_prefers_top_level_play_addr_original(self):
+        # app 接口带 is_bytevc1，顶层 play_addr 是原画母带，即使 bit_rate[] 里有更高分辨率
+        # 的转码档位（体积更小）也必须优先取原画。
+        result = parse_video_info(
+            {
+                "is_bytevc1": 0,
+                "duration": 12000,
+                "play_addr": {
+                    "url_list": ["https://example.com/original"],
+                    "width": 576,
+                    "height": 1024,
+                    "data_size": 87_000_000,
+                },
+                "bit_rate": [
+                    {
+                        "is_bytevc1": 2,
+                        "bit_rate": 549127,
+                        "play_addr": {
+                            "url_list": ["https://example.com/transcoded"],
+                            "width": 1080,
+                            "height": 1920,
+                            "data_size": 874073,
+                        },
+                    }
+                ],
+            }
+        )
+        self.assertEqual(result["video_url"], "https://example.com/original")
+        self.assertEqual(result["width"], 576)
+
+    def test_app_interface_falls_back_to_h264_bit_rate(self):
+        # app 接口顶层 play_addr 为空时，回退到 bit_rate[] 且必须过滤 bytevc1/2 转码档。
+        result = parse_video_info(
+            {
+                "is_bytevc1": 0,
+                "play_addr": {"url_list": [], "width": 0, "height": 0},
+                "bit_rate": [
+                    {
+                        "is_bytevc1": 1,
+                        "bit_rate": 6000,
+                        "play_addr": {"url_list": ["https://example.com/hevc"], "data_size": 9_000_000},
+                    },
+                    {
+                        "is_bytevc1": 0,
+                        "bit_rate": 3000,
+                        "play_addr": {"url_list": ["https://example.com/h264"], "data_size": 6_000_000},
+                    },
+                ],
+            }
+        )
+        self.assertEqual(result["video_url"], "https://example.com/h264")
+
 
 if __name__ == "__main__":
     unittest.main()
