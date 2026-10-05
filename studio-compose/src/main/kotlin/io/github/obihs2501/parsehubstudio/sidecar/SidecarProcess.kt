@@ -11,6 +11,18 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**
+ * sidecar 的一种启动方式：
+ *  - 打包后：直接运行 `parsehub-sidecar.exe`
+ *  - 开发时：用 studio/.venv 的 python 运行 `-m parsehub_studio.sidecar`（无需先打 exe）
+ */
+data class SidecarLaunch(
+    val command: List<String>,
+    val workDir: File,
+    val label: String,
+    val pythonPath: String? = null,
+)
+
+/**
  * 启动并管理 Python sidecar（与 Tauri 版使用完全相同的协议）。
  *
  * 协议（语言无关，见 studio/src/parsehub_studio/sidecar.py）：
@@ -20,7 +32,7 @@ import java.util.concurrent.TimeUnit
  *  - 关闭 stdin 即通知 sidecar 退出
  */
 class SidecarProcess(
-    private val executable: File,
+    private val launch: SidecarLaunch,
     val token: String = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", ""),
 ) {
     private var process: Process? = null
@@ -33,13 +45,14 @@ class SidecarProcess(
 
     suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val workDir = executable.parentFile ?: File(".")
-            val proc = ProcessBuilder(executable.absolutePath)
-                .directory(workDir)
+            val proc = ProcessBuilder(launch.command)
+                .directory(launch.workDir)
                 .apply {
                     environment()["PARSEHUB_SESSION_TOKEN"] = token
                     environment()["PYTHONUTF8"] = "1"
                     environment()["PYTHONIOENCODING"] = "utf-8"
+                    environment()["PYTHONUNBUFFERED"] = "1"
+                    launch.pythonPath?.let { environment()["PYTHONPATH"] = it }
                 }
                 .redirectErrorStream(false)
                 .start()
@@ -97,13 +110,19 @@ class SidecarProcess(
     fun isAlive(): Boolean = process?.isAlive == true
 
     companion object {
+        private val isWindows: Boolean
+            get() = System.getProperty("os.name").lowercase().contains("win")
+
+        private val exeName: String
+            get() = if (isWindows) "parsehub-sidecar.exe" else "parsehub-sidecar"
+
+        /** 定位 sidecar：优先打包后的可执行文件，其次开发用的 python 环境。 */
+        fun locate(): SidecarLaunch? = locateExecutable()?.let {
+            SidecarLaunch(listOf(it.absolutePath), it.parentFile ?: File("."), it.name)
+        } ?: locateDevPython()
+
         /** 定位 sidecar 可执行文件：打包后与主程序同目录，其次开发目录。 */
-        fun locate(): File? {
-            val exeName = if (System.getProperty("os.name").lowercase().contains("win")) {
-                "parsehub-sidecar.exe"
-            } else {
-                "parsehub-sidecar"
-            }
+        private fun locateExecutable(): File? {
             val candidates = mutableListOf<File>()
 
             // 1) 与当前 classpath 同目录及其子目录（jpackage 把 jar 放在 app/，
@@ -130,6 +149,48 @@ class SidecarProcess(
             candidates += File(cwd, "studio/dist/$exeName")
 
             return candidates.firstOrNull { it.isFile }
+        }
+
+        /**
+         * 开发模式回退：不依赖打包好的 exe，直接用 studio/.venv 的 python
+         * 运行 `-m parsehub_studio.sidecar`（venv 里 parsehub_studio 是 editable 安装）。
+         *
+         * 可用 PARSEHUB_SIDECAR_PYTHON 显式指定解释器（配合 PARSEHUB_SIDECAR_CWD / PARSEHUB_SIDECAR_SRC）。
+         */
+        private fun locateDevPython(): SidecarLaunch? {
+            System.getenv("PARSEHUB_SIDECAR_PYTHON")?.takeIf { it.isNotBlank() }?.let { python ->
+                val cwd = System.getenv("PARSEHUB_SIDECAR_CWD")?.takeIf { it.isNotBlank() }?.let(::File)
+                    ?: File(System.getProperty("user.dir"))
+                return SidecarLaunch(
+                    command = listOf(python, "-m", "parsehub_studio.sidecar"),
+                    workDir = cwd,
+                    label = "python -m parsehub_studio.sidecar",
+                    pythonPath = System.getenv("PARSEHUB_SIDECAR_SRC")?.takeIf { it.isNotBlank() },
+                )
+            }
+
+            val cwd = File(System.getProperty("user.dir"))
+            val relativeVenvs = listOf(
+                "../studio/.venv",
+                "studio/.venv",
+                ".venv",
+            )
+            val scripts = if (isWindows) "Scripts/python.exe" else "bin/python"
+            for (relative in relativeVenvs) {
+                val venv = File(cwd, relative)
+                val python = File(venv, scripts)
+                if (!python.isFile) continue
+                val studioDir = venv.parentFile ?: continue
+                val source = File(studioDir, "src/parsehub_studio/sidecar.py")
+                if (!source.isFile) continue
+                return SidecarLaunch(
+                    command = listOf(python.absolutePath, "-m", "parsehub_studio.sidecar"),
+                    workDir = studioDir,
+                    label = "python -m parsehub_studio.sidecar (${venv.name})",
+                    pythonPath = File(studioDir, "src").absolutePath,
+                )
+            }
+            return null
         }
     }
 }

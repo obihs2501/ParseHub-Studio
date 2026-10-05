@@ -2,8 +2,8 @@
 build/
 dist/
 release/
-resources/
-!resources/.gitkeep
+/resources/
+!/resources/.gitkeep
 *.hprof
 local.properties
 .kotlin/

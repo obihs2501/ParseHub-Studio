@@ -9,7 +9,7 @@ data class Platform(
     val id: String,
     val name: String = "",
     @SerialName("display_name") val displayName: String = "",
-    @SerialName("supported_type") val supportedType: List<String> = emptyList(),
+    @SerialName("supported_types") val supportedTypes: List<String> = emptyList(),
     @SerialName("parse_proxy") val parseProxy: String? = null,
     @SerialName("download_proxy") val downloadProxy: String? = null,
     @SerialName("cookie_set") val cookieSet: Boolean = false,
@@ -160,3 +160,14 @@ data class Bookmark(
     val url: String = "",
     val group: String = "通用",
 )
+
+/** 目录浏览（/api/fs/list）。 */
+@Serializable
+data class FsListing(
+    val path: String = "",
+    val parent: String? = null,
+    val dirs: List<FsDir> = emptyList(),
+)
+
+@Serializable
+data class FsDir(val name: String = "", val path: String = "")

@@ -33,16 +33,31 @@ dependencies {
     implementation("top.yukonga.miuix.kmp:miuix-blur-desktop:$miuix")
 
     // HTTP + JSON（调 Python sidecar 的 28 个 API）
-    implementation("io.ktor:ktor-client-core:3.0.3")
-    implementation("io.ktor:ktor-client-cio:3.0.3")
-    implementation("io.ktor:ktor-client-content-negotiation:3.0.3")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.3")
+    // ktor 版本需 >= 3.1.0：coil-network-ktor3 3.6.3 依赖 ktor-client-core 3.1.0
+    val ktor = "3.3.1"
+    implementation("io.ktor:ktor-client-core:$ktor")
+    implementation("io.ktor:ktor-client-cio:$ktor")
+    implementation("io.ktor:ktor-client-content-negotiation:$ktor")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktor")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
+
+    // 图片加载（缩略图 / 灯箱），走 sidecar 的 /api/media 代理
+    implementation("io.coil-kt.coil3:coil-compose:3.6.3")
+    implementation("io.coil-kt.coil3:coil-network-ktor3:3.6.3")
 
     // Windows Mica（DWM API）
     implementation("net.java.dev.jna:jna:5.15.0")
     implementation("net.java.dev.jna:jna-platform:5.15.0")
+
+    // 内置视频播放器：JavaFX Media —— 自带 H.264/AAC 解码器（win 分类器 jar 里含 native），
+    // 不依赖本机装 VLC，也不像 Edge --app 那样放不了 HEVC / 独立 .ts。
+    // 通过 JFXPanel + Compose SwingPanel 嵌入（classpath 方式使用，无需模块化）。
+    val javafx = "21.0.5"
+    implementation("org.openjfx:javafx-base:$javafx:win")
+    implementation("org.openjfx:javafx-graphics:$javafx:win")
+    implementation("org.openjfx:javafx-media:$javafx:win")
+    implementation("org.openjfx:javafx-swing:$javafx:win")
 
     testImplementation(kotlin("test"))
 }

@@ -9,9 +9,12 @@ import androidx.compose.ui.window.rememberWindowState
 import io.github.obihs2501.parsehubstudio.sidecar.ApiClient
 import io.github.obihs2501.parsehubstudio.sidecar.SidecarProcess
 import io.github.obihs2501.parsehubstudio.sidecar.WindowsMica
+import io.github.obihs2501.parsehubstudio.ui.AppFont
 import io.github.obihs2501.parsehubstudio.ui.AppRoot
+import io.github.obihs2501.parsehubstudio.ui.LocalImageLoader
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
+import top.yukonga.miuix.kmp.theme.lightColorScheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,12 +28,14 @@ fun main() = application {
     var startupError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        val exe = SidecarProcess.locate()
-        if (exe == null) {
-            startupError = "未找到 parsehub-sidecar 可执行文件。\n开发模式请先构建：studio/dist/parsehub-sidecar.exe"
+        val launch = SidecarProcess.locate()
+        if (launch == null) {
+            startupError = "未找到 parsehub-sidecar 可执行文件，也没有可用的开发环境。\n" +
+                "打包运行请先构建：studio/dist/parsehub-sidecar.exe\n" +
+                "开发模式请在 studio/ 执行 uv sync --locked 后重试，或用 PARSEHUB_SIDECAR_PYTHON 指定解释器。"
             return@LaunchedEffect
         }
-        val proc = SidecarProcess(exe)
+        val proc = SidecarProcess(launch)
         proc.start()
             .onSuccess {
                 sidecar = proc
@@ -42,7 +47,8 @@ fun main() = application {
     val state = remember(api) { api?.let { AppState(it, scope) } }
     LaunchedEffect(state) { state?.bootstrap() }
 
-    val windowState = rememberWindowState(size = DpSize(1120.dp, 760.dp))
+    val windowState = rememberWindowState(size = DpSize(1180.dp, 800.dp))
+    val dark = (state?.settings?.theme ?: "dark") != "light"
 
     Window(
         onCloseRequest = {
@@ -52,22 +58,31 @@ fun main() = application {
         state = windowState,
         title = "ParseHub Studio",
     ) {
-        window.minimumSize = Dimension(900, 600)
+        window.minimumSize = Dimension(960, 640)
 
-        // Windows 11 Mica 材质
-        var micaApplied by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) {
+        // Windows 11 Mica 材质（跟随主题）
+        LaunchedEffect(dark) {
             if (WindowsMica.isWindows) {
-                micaApplied = runCatching {
-                    WindowsMica.apply(window.windowHandle, isDark = true)
-                }.getOrDefault(false)
+                runCatching { WindowsMica.apply(window.windowHandle, isDark = dark) }
             }
         }
 
         when {
             startupError != null -> StartupErrorScreen(startupError!!)
             state == null -> LoadingScreen("正在启动本地解析服务…")
-            else -> MiuixTheme(colors = darkColorScheme()) { AppRoot(state) }
+            else -> {
+                // 界面字体：整套 miuix textStyles 换成 PingFang（本机有）或内置 MiSans
+                val baseStyles = MiuixTheme.textStyles
+                val styles = remember { AppFont.textStyles(baseStyles) }
+                MiuixTheme(
+                    colors = if (dark) darkColorScheme() else lightColorScheme(),
+                    textStyles = styles,
+                ) {
+                    CompositionLocalProvider(LocalImageLoader provides state.imageLoader) {
+                        AppRoot(state)
+                    }
+                }
+            }
         }
     }
 }

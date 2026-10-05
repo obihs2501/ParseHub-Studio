@@ -1,5 +1,7 @@
 package io.github.obihs2501.parsehubstudio
 
+import io.github.obihs2501.parsehubstudio.ui.AppFont
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,15 +31,15 @@ fun LoadingScreen(message: String) {
             contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("ParseHub", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.onBackground)
+                Text("ParseHub", fontSize = 32.sp, fontFamily = AppFont.family, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.onBackground)
                 Spacer(Modifier.height(8.dp))
-                Text("Studio", fontSize = 16.sp, color = MiuixTheme.colorScheme.onBackgroundVariant)
+                Text("Studio", fontSize = 16.sp, fontFamily = AppFont.family, color = MiuixTheme.colorScheme.onBackgroundVariant)
                 Spacer(Modifier.height(28.dp))
-                Text(message, fontSize = 14.sp, color = MiuixTheme.colorScheme.onBackgroundVariant, textAlign = TextAlign.Center)
+                Text(message, fontSize = 14.sp, fontFamily = AppFont.family, color = MiuixTheme.colorScheme.onBackgroundVariant, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "首次启动需要解压 Python 环境，请稍候",
-                    fontSize = 12.sp,
+                    fontSize = 12.sp, fontFamily = AppFont.family,
                     color = MiuixTheme.colorScheme.onSurfaceVariantActions,
                 )
             }
@@ -58,13 +60,13 @@ fun StartupErrorScreen(message: String) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text("无法启动本地解析服务", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.error)
+                Text("无法启动本地解析服务", fontSize = 22.sp, fontFamily = AppFont.family, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.error)
                 Spacer(Modifier.height(16.dp))
-                Text(message, fontSize = 14.sp, color = MiuixTheme.colorScheme.onBackground, textAlign = TextAlign.Center)
+                Text(message, fontSize = 14.sp, fontFamily = AppFont.family, color = MiuixTheme.colorScheme.onBackground, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(20.dp))
                 Text(
                     "请关闭应用后重试；如仍无法启动，请检查 Python 服务是否可用。",
-                    fontSize = 13.sp,
+                    fontSize = 13.sp, fontFamily = AppFont.family,
                     color = MiuixTheme.colorScheme.onBackgroundVariant,
                     textAlign = TextAlign.Center,
                 )

@@ -233,12 +233,14 @@ class ApiClient(private val sidecar: SidecarProcess) {
     }
 
     // ---------------------------------------------------------------- 文件系统
-    suspend fun listDirs(path: String? = null): JsonObject {
+    suspend fun listDirs(path: String? = null): FsListing {
         val url = buildString {
             append("${sidecar.baseUrl}/api/fs/list")
             if (!path.isNullOrBlank()) append("?path=${java.net.URLEncoder.encode(path, "UTF-8")}")
         }
-        return client.get(url) { auth() }.also { check(it) }.body()
+        val res = client.get(url) { auth() }
+        check(res)
+        return json.decodeFromString(FsListing.serializer(), res.bodyAsText())
     }
 
     suspend fun reveal(path: String) {
@@ -258,14 +260,19 @@ class ApiClient(private val sidecar: SidecarProcess) {
     }
 
     /** 媒体代理 URL（用于 Compose 加载图片，绕过 Referer/CORS）。 */
-    fun mediaUrl(src: String, download: Boolean = false, filename: String? = null): String {
+    fun mediaUrl(src: String, download: Boolean = false, filename: String? = null, referer: String? = null): String {
         val encoded = java.net.URLEncoder.encode(src, "UTF-8")
         return buildString {
             append("${sidecar.baseUrl}/api/media?src=$encoded")
             if (download) append("&download=1")
             if (!filename.isNullOrBlank()) append("&filename=${java.net.URLEncoder.encode(filename, "UTF-8")}")
+            if (!referer.isNullOrBlank()) append("&referer=${java.net.URLEncoder.encode(referer, "UTF-8")}")
         }
     }
+
+    /** sidecar 地址与 token（供图片加载器复用同一鉴权）。 */
+    val baseUrl: String get() = sidecar.baseUrl
+    val token: String get() = sidecar.token
 
     fun close() = client.close()
 }
