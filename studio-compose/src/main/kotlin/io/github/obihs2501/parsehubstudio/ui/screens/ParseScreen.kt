@@ -69,7 +69,7 @@ fun ParseScreen(state: AppState) {
         PrefRow("同名文件夹合并归档", "多次下载进入同一作者目录，已有文件不覆盖") {
             Switch(state.settings?.mergeAuthorFolders ?: true, onCheckedChange = { v ->
                 state.saveSettings(mapOf("merge_author_folders" to kotlinx.serialization.json.JsonPrimitive(v)))
-            }
+            })
         }
         RowDivider()
         PrefRow("打开 KuKuTool 解析网页", "独立窗口运行，不传送本地 Cookie", onClick = {

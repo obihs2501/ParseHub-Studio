@@ -32,7 +32,7 @@ fun SettingsScreen(state: AppState) {
         PrefRow("下载规格", if (s.downloadQuality == "origin") "原图 / 原视频" else "预览图（缩略图）") {
             Switch(s.downloadQuality == "origin", onCheckedChange = { v ->
                 state.saveSettings(mapOf("download_quality" to JsonPrimitive(if (v) "origin" else "thumb")))
-            }
+            })
         }
     }
 
@@ -41,7 +41,7 @@ fun SettingsScreen(state: AppState) {
         PrefRow("深色主题", "关闭则使用浅色") {
             Switch(s.theme == "dark", onCheckedChange = { v ->
                 state.saveSettings(mapOf("theme" to JsonPrimitive(if (v) "dark" else "light")))
-            }
+            })
         }
         RowDivider()
         PrefRow("高清预览", "网格使用高清预览；取消则直接加载原图") {
@@ -67,7 +67,7 @@ fun SettingsScreen(state: AppState) {
         PrefRow("合并同名作者目录", "多次下载进入同一作者目录") {
             Switch(s.mergeAuthorFolders, onCheckedChange = { v ->
                 state.saveSettings(mapOf("merge_author_folders" to JsonPrimitive(v)))
-            }
+            })
         }
     }
 

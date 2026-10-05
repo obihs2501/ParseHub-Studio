@@ -34,7 +34,7 @@ fun CookiesScreen(state: AppState) {
                         trailing = {
                             Switch(entry.enabled, onCheckedChange = { enabled ->
                                 state.toggleCookie(platform.id, entry.id, enabled)
-                            }
+                            })
                         },
                     )
                 }
