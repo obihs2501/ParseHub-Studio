@@ -169,8 +169,10 @@ jobs:
           enable-cache: true
       - uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "21"
+          # 锁到本地已验证可用的组合：Microsoft JDK 21.0.11（本地 packageMsi/packageExe 全部成功）
+          # CI 默认 Temurin 21.0.12 时 jpackage 里的 light.exe 稳定返回 311（见 DEV_NOTES §6）
+          distribution: microsoft
+          java-version: "21.0.11"
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Exclude build dirs from Windows Defender
@@ -244,6 +246,11 @@ jobs:
           Get-ChildItem C:\b\compose\binaries\main\msi\*.msi -ErrorAction SilentlyContinue | Copy-Item -Destination release/
           Get-ChildItem C:\b\compose\binaries\main\exe\*.exe -ErrorAction SilentlyContinue | Copy-Item -Destination release/
           # 只发布独立安装包（用户要求不要便携版）：MSI / EXE
+          $installers = @(Get-ChildItem -LiteralPath release -File | Where-Object { $_.Extension -in '.msi', '.exe' })
+          if ($installers.Count -eq 0) {
+            Write-Host '::error::MSI/EXE 未产出（WiX light.exe 失败）——不再静默降级成便携版，请查上面的 jpackage 日志'
+            exit 1
+          }
           $checksums = Get-ChildItem -LiteralPath release -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object {
             $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
             "$($hash.Hash.ToLower())  $($_.Name)"
