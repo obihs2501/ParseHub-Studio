@@ -216,21 +216,8 @@ private fun SidebarRow(title: String, summary: String, selected: Boolean, onClic
 private fun GalleryContent(state: AppState) {
     val current = state.galleryStack.lastOrNull()
     if (current == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(MiuixIcons.Regular.Folder, null, Modifier.size(48.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantActions)
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    if (state.galleryRootGroups.isEmpty()) "还没有添加任何文件夹" else "从左侧选择一个文件夹开始浏览",
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-                Spacer(Modifier.height(10.dp))
-                TextButton("添加文件夹…", onClick = {
-                    state.openDialog(Dialog.AddGalleryRoot(initial = state.settings?.defaultSaveDir.orEmpty()))
-                })
-            }
-        }
+        // 未打开文件夹：铺满窗口的两列文件夹视图（原来只有一句「从左侧选择…」的空状态）
+        FolderOverview(state)
         return
     }
 
@@ -292,16 +279,16 @@ private fun GalleryContent(state: AppState) {
             FilterPill(if (showDisplay) "收起显示设置" else "显示设置", showDisplay) { showDisplay = !showDisplay }
         }
 
-        // ---- 工具栏（第二行：排序 / 列数 / 显示方式，默认收起）
-        if (showDisplay) {
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("排序", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                FilterPill("名称", state.gallerySortBy == "name") { state.gallerySortBy = "name" }
-                FilterPill("时间", state.gallerySortBy == "time") { state.gallerySortBy = "time" }
-                FilterPill("大小", state.gallerySortBy == "size") { state.gallerySortBy = "size" }
-                FilterPill(if (state.gallerySortDesc) "降序" else "升序") { state.gallerySortDesc = !state.gallerySortDesc }
-                Spacer(Modifier.width(8.dp))
+        // ---- 工具栏（第二行：排序常显；列数 / 显示方式收在「显示设置」里）
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("排序", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            FilterPill("名称", state.gallerySortBy == "name") { state.gallerySortBy = "name" }
+            FilterPill("时间", state.gallerySortBy == "time") { state.gallerySortBy = "time" }
+            FilterPill("大小", state.gallerySortBy == "size") { state.gallerySortBy = "size" }
+            FilterPill(if (state.gallerySortDesc) "↓ 降序" else "↑ 升序") { state.gallerySortDesc = !state.gallerySortDesc }
+            if (showDisplay) {
+                Spacer(Modifier.width(10.dp))
                 Text("列数", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 FilterPill("−") { state.galleryColumns = (state.galleryColumns - 1).coerceAtLeast(2) }
                 Text("${state.galleryColumns}", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -313,6 +300,8 @@ private fun GalleryContent(state: AppState) {
                     Spacer(Modifier.width(6.dp))
                     Switch(state.galleryVideoThumbs, onCheckedChange = { state.galleryVideoThumbs = it })
                 }
+            } else {
+                Spacer(Modifier.weight(1f))
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -422,6 +411,146 @@ private fun FilterPill(text: String, selected: Boolean = false, onClick: () -> U
             color = if (selected) MiuixTheme.colorScheme.onTertiaryContainer else MiuixTheme.colorScheme.onSurfaceVariantSummary,
             maxLines = 1,
         )
+    }
+}
+
+/* --------------------------------------------- 未打开文件夹：两列铺满 */
+
+/**
+ * 未打开文件夹时的首页：把每个图库位置下的一级文件夹**铺满窗口**（两列卡片），
+ * 排序可调（名称 / 时间 / 数量，升 / 降序）。打开某个文件夹后回到按列数可调的媒体网格。
+ */
+@Composable
+private fun FolderOverview(state: AppState) {
+    val keyword = state.galleryFolderSearch.trim().lowercase()
+    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "全部文件夹",
+                    style = MiuixTheme.textStyles.title4,
+                    fontWeight = FontWeight.Medium,
+                    color = MiuixTheme.colorScheme.onBackground,
+                )
+                Text(
+                    "共 ${state.galleryRootGroups.sumOf { it.folders.size }} 个文件夹 · ${state.galleryRootGroups.size} 个图库位置" +
+                        if (state.galleryScanning) " · 正在扫描…" else "",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            Text("排序", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Spacer(Modifier.width(6.dp))
+            FilterPill("名称", state.galleryFolderSort == "name") { state.galleryFolderSort = "name" }
+            FilterPill("时间", state.galleryFolderSort == "time") { state.galleryFolderSort = "time" }
+            FilterPill("数量", state.galleryFolderSort == "count") { state.galleryFolderSort = "count" }
+            FilterPill(if (state.galleryFolderSortDesc) "↓ 降序" else "↑ 升序") { state.galleryFolderSortDesc = !state.galleryFolderSortDesc }
+            Spacer(Modifier.width(8.dp))
+            TextButton("重新扫描", onClick = { state.loadGallery(force = true) })
+        }
+
+        LazyColumn(Modifier.fillMaxSize()) {
+            state.galleryRootGroups.forEach { group ->
+                val folders = group.folders.filter { keyword.isEmpty() || it.name.lowercase().contains(keyword) }
+                if (keyword.isNotEmpty() && folders.isEmpty()) return@forEach
+                item {
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            group.name,
+                            style = MiuixTheme.textStyles.headline1,
+                            fontWeight = FontWeight.Medium,
+                            color = MiuixTheme.colorScheme.onBackground,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("${folders.size}", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            if (group.removable) group.path else "默认下载目录",
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                val sorted = when (state.galleryFolderSort) {
+                    "time" -> folders.sortedBy { it.modifiedAt }
+                    "count" -> folders.sortedBy { it.mediaCount }
+                    else -> folders.sortedBy { it.name.lowercase() }
+                }.let { if (state.galleryFolderSortDesc) it.reversed() else it }
+                val rows = sorted.chunked(2)
+                items(rows.size) { rowIndex ->
+                    val row = rows[rowIndex]
+                    Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEach { folder ->
+                            FolderCard(
+                                folder = folder,
+                                modifier = Modifier.weight(1f),
+                                onClick = { state.openGalleryFolder(folder, listOf(folder)) },
+                            )
+                        }
+                        repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+
+            if (state.galleryRootGroups.isEmpty()) {
+                item {
+                    Column(Modifier.fillMaxWidth().padding(top = 60.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            if (state.galleryScanning) "正在扫描…" else "还没有添加任何文件夹",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        TextButton("添加文件夹…", onClick = {
+                            state.openDialog(Dialog.AddGalleryRoot(initial = state.settings?.defaultSaveDir.orEmpty()))
+                        })
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(24.dp)) }
+        }
+    }
+}
+
+/** 两列视图里的文件夹卡片（名称可换行，不截断）。 */
+@Composable
+private fun FolderCard(folder: LocalLibrary.Folder, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    Row(
+        modifier
+            .squircleSurface(MiuixTheme.colorScheme.secondaryVariant, 14.dp)
+            .clickable(interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(40.dp).squircleSurface(MiuixTheme.colorScheme.surface, 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(MiuixIcons.Regular.Folder, null, Modifier.size(22.dp), tint = MiuixTheme.colorScheme.primary)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                folder.name,
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onBackground,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                listOfNotNull(
+                    if (folder.mediaCount > 0) "${folder.mediaCount} 个媒体" else null,
+                    formatRelativeTime(folder.modifiedAt).ifBlank { null },
+                ).joinToString(" · "),
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+            )
+        }
     }
 }
 

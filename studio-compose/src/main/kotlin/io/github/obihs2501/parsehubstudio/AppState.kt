@@ -781,6 +781,10 @@ class AppState(
     var galleryFolderSearch by mutableStateOf("")
     var gallerySortBy by mutableStateOf("name")
     var gallerySortDesc by mutableStateOf(false)
+
+    /** 未打开文件夹时「两列文件夹视图」的排序：name / time / count。 */
+    var galleryFolderSort by mutableStateOf("name")
+    var galleryFolderSortDesc by mutableStateOf(false)
     var galleryColumns by mutableStateOf(5)
     var galleryCoverMode by mutableStateOf(true)
     var galleryVideoThumbs by mutableStateOf(true)
