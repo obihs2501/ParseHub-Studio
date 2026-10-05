@@ -188,33 +188,38 @@ jobs:
           New-Item -ItemType Directory -Force resources/common | Out-Null
           Copy-Item -LiteralPath ../studio/dist/parsehub-sidecar.exe -Destination resources/common/parsehub-sidecar.exe
       - name: Build Compose app (compile check)
+        env:
+          PARSEHUB_BUILD_DIR: C:\b
         run: |
+          New-Item -ItemType Directory -Force C:\b | Out-Null
           .\gradlew.bat --no-daemon compileKotlin
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Package MSI and EXE installers
         env:
-          # WiX light.exe 在长临时路径下会返回 311；把临时目录指到短路径规避
+          # WiX light.exe 在长路径下会返回 311；把 build 输出与临时目录都指到短路径
+          PARSEHUB_BUILD_DIR: C:\b
           TEMP: C:\t
           TMP: C:\t
         run: |
           New-Item -ItemType Directory -Force C:\t | Out-Null
+          New-Item -ItemType Directory -Force C:\b | Out-Null
           .\gradlew.bat --no-daemon packageMsi packageExe
           if ($LASTEXITCODE) {
             Write-Host '::group::jpackage logs'
-            Get-ChildItem -Recurse -Path build/compose/logs -ErrorAction SilentlyContinue | ForEach-Object {
+            Get-ChildItem -Recurse -Path C:\b\compose\logs -ErrorAction SilentlyContinue | ForEach-Object {
               Write-Host "----- $($_.FullName) -----"
               Get-Content -LiteralPath $_.FullName -ErrorAction SilentlyContinue
             }
             Write-Host '::endgroup::'
             Write-Host 'Retrying packaging once after clearing WiX cache...'
-            Remove-Item -Recurse -Force build/wix311 -ErrorAction SilentlyContinue
+            Remove-Item -Recurse -Force C:\b\wix311 -ErrorAction SilentlyContinue
             .\gradlew.bat --no-daemon packageMsi packageExe
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
       - name: Assemble portable app
         run: |
           New-Item -ItemType Directory -Force dist/ParseHubStudioCompose-portable | Out-Null
-          Copy-Item -Recurse -Force build/compose/binaries/main/app/ParseHubStudio/* dist/ParseHubStudioCompose-portable/
+          Copy-Item -Recurse -Force C:\b\compose\binaries\main\app\ParseHubStudio\* dist/ParseHubStudioCompose-portable/
           Copy-Item -Force ../LICENSE dist/ParseHubStudioCompose-portable/
           # sidecar 已随 appResourcesRootDir 打进 app/resources/
           Get-ChildItem -Recurse -Path dist/ParseHubStudioCompose-portable -Filter parsehub-sidecar.exe |
@@ -222,8 +227,8 @@ jobs:
       - name: Collect Compose release files and checksums
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
-          Get-ChildItem build/compose/binaries/main/msi/*.msi -ErrorAction SilentlyContinue | Copy-Item -Destination release/
-          Get-ChildItem build/compose/binaries/main/exe/*.exe -ErrorAction SilentlyContinue | Copy-Item -Destination release/
+          Get-ChildItem C:\b\compose\binaries\main\msi\*.msi -ErrorAction SilentlyContinue | Copy-Item -Destination release/
+          Get-ChildItem C:\b\compose\binaries\main\exe\*.exe -ErrorAction SilentlyContinue | Copy-Item -Destination release/
           Compress-Archive -Path dist/ParseHubStudioCompose-portable -DestinationPath release/ParseHubStudioCompose-windows-x64-portable.zip
           $checksums = Get-ChildItem -LiteralPath release -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object {
             $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
