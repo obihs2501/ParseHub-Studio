@@ -183,16 +183,21 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           uv run python packaging/check_bundle.py
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Stage sidecar next to Compose app resources
+      - name: Stage sidecar for packaging
         run: |
-          New-Item -ItemType Directory -Force resources | Out-Null
-          Copy-Item -LiteralPath ../studio/dist/parsehub-sidecar.exe -Destination resources/parsehub-sidecar.exe
+          New-Item -ItemType Directory -Force resources/common | Out-Null
+          Copy-Item -LiteralPath ../studio/dist/parsehub-sidecar.exe -Destination resources/common/parsehub-sidecar.exe
       - name: Build Compose app (compile check)
         run: |
           .\gradlew.bat --no-daemon compileKotlin
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Package MSI and EXE installers
+        env:
+          # WiX light.exe 在长临时路径下会返回 311；把临时目录指到短路径规避
+          TEMP: C:\t
+          TMP: C:\t
         run: |
+          New-Item -ItemType Directory -Force C:\t | Out-Null
           .\gradlew.bat --no-daemon packageMsi packageExe
           if ($LASTEXITCODE) {
             Write-Host '::group::jpackage logs'
@@ -210,8 +215,10 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist/ParseHubStudioCompose-portable | Out-Null
           Copy-Item -Recurse -Force build/compose/binaries/main/app/ParseHubStudio/* dist/ParseHubStudioCompose-portable/
-          Copy-Item -Force ../studio/dist/parsehub-sidecar.exe dist/ParseHubStudioCompose-portable/parsehub-sidecar.exe
           Copy-Item -Force ../LICENSE dist/ParseHubStudioCompose-portable/
+          # sidecar 已随 appResourcesRootDir 打进 app/resources/
+          Get-ChildItem -Recurse -Path dist/ParseHubStudioCompose-portable -Filter parsehub-sidecar.exe |
+            Select-Object -First 1 | ForEach-Object { Write-Host "Bundled sidecar: $($_.FullName)" }
       - name: Collect Compose release files and checksums
         run: |
           New-Item -ItemType Directory -Force release | Out-Null

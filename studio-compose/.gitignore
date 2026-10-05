@@ -2,7 +2,8 @@
 build/
 dist/
 release/
-resources/parsehub-sidecar.exe
+resources/
+!resources/.gitkeep
 *.hprof
 local.properties
 .kotlin/

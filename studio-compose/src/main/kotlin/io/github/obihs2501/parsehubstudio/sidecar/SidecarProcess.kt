@@ -97,7 +97,7 @@ class SidecarProcess(
     fun isAlive(): Boolean = process?.isAlive == true
 
     companion object {
-        /** 定位 sidecar 可执行文件：优先与主程序同目录，其次开发目录。 */
+        /** 定位 sidecar 可执行文件：打包后与主程序同目录，其次开发目录。 */
         fun locate(): File? {
             val exeName = if (System.getProperty("os.name").lowercase().contains("win")) {
                 "parsehub-sidecar.exe"
@@ -106,13 +106,25 @@ class SidecarProcess(
             }
             val candidates = mutableListOf<File>()
 
-            // 1) 与当前可执行文件同目录（打包后）
+            // 1) 与当前 classpath 同目录及其子目录（jpackage 把 jar 放在 app/，
+            //    appResourcesRootDir 的内容落在 app/resources/）
             runCatching {
                 val self = File(SidecarProcess::class.java.protectionDomain.codeSource.location.toURI())
-                candidates += File(self.parentFile, exeName)
+                val appDir = self.parentFile
+                candidates += File(appDir, "resources/$exeName")
+                candidates += File(appDir, exeName)
+                appDir?.parentFile?.let {
+                    candidates += File(it, exeName)
+                    candidates += File(it, "resources/$exeName")
+                }
             }
-            // 2) 开发目录：studio/dist/parsehub-sidecar.exe
+            // 2) 启动器所在目录（jpackage 会设置 jpackage.app-path）
+            System.getProperty("jpackage.app-path")?.let {
+                candidates += File(File(it).parentFile, exeName)
+            }
+            // 3) 开发目录：studio/dist/parsehub-sidecar.exe
             val cwd = File(System.getProperty("user.dir"))
+            candidates += File(cwd, exeName)
             candidates += File(cwd, "dist/$exeName")
             candidates += File(cwd, "../studio/dist/$exeName")
             candidates += File(cwd, "studio/dist/$exeName")

@@ -10,6 +10,10 @@ plugins {
 group = "io.github.obihs2501.parsehubstudio"
 version = "0.5.0"
 
+// WiX light.exe 在 Windows 上对路径长度敏感（CI 上 D:\a\... 会触发 exit 311）。
+// 允许通过环境变量把 build 目录指到短路径。
+System.getenv("PARSEHUB_BUILD_DIR")?.let { layout.buildDirectory.set(file(it)) }
+
 repositories {
     // miuix 及大部分依赖在 Maven Central
     mavenCentral()
@@ -59,6 +63,9 @@ compose.desktop {
             description = "ParseHub 可视化桌面应用：解析社交平台内容并可视化预览、下载"
             copyright = "ParseHub and ParseHub Studio contributors"
             vendor = "obihs2501"
+
+            // 随应用分发 parsehub-sidecar.exe（构建时放在 resources/）
+            appResourcesRootDir.set(project.layout.projectDirectory.dir("resources"))
 
             windows {
                 iconFile.set(project.file("src/main/resources/icon.ico"))
