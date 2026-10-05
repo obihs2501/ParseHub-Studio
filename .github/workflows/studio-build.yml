@@ -3,7 +3,7 @@ name: Build ParseHub Studio
 on:
   workflow_dispatch:
   push:
-    branches: [master, main]
+    branches: [master, main, "feat/**", "fix/**"]
     paths: ["studio/**", "studio-compose/**", "src/**", "test/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
   pull_request:
     paths: ["studio/**", "studio-compose/**", "src/**", "test/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
@@ -227,8 +227,8 @@ jobs:
 
   release:
     name: Publish tested Windows binaries
-    if: github.event_name != 'pull_request'
-    needs: windows
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    needs: [windows, compose]
     runs-on: ubuntu-latest
     permissions:
       contents: write
