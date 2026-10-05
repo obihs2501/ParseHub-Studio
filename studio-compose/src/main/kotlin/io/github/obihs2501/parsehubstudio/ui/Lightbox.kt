@@ -296,14 +296,22 @@ fun LightboxOverlay(state: AppState) {
                     contentAlignment = Alignment.Center,
                 ) {
                     when {
-                        // 本地视频：内置播放器（JavaFX Media）在应用内直接播放
+                        // 本地视频：装了 VLC 就用 VLC（编解码最全），否则内置 JavaFX 播放器
                         isVideo && item.localPath != null -> {
                             val path = item.localPath
-                            EmbeddedVideoPlayer(
-                                file = java.io.File(path),
-                                modifier = Modifier.fillMaxSize(),
-                                onFallback = { state.playVideo(path) },
-                            )
+                            if (VlcSupport.available) {
+                                VlcVideoPlayer(
+                                    file = java.io.File(path),
+                                    modifier = Modifier.fillMaxSize(),
+                                    onFallback = { state.playVideo(path) },
+                                )
+                            } else {
+                                EmbeddedVideoPlayer(
+                                    file = java.io.File(path),
+                                    modifier = Modifier.fillMaxSize(),
+                                    onFallback = { state.playVideo(path) },
+                                )
+                            }
                         }
                         // 远程视频：只显示首帧 + 提示（需要先保存到下载目录）
                         isVideo -> VideoStage(item = item, model = item.previewModel)
@@ -445,6 +453,7 @@ fun LightboxOverlay(state: AppState) {
                                     radius = 12.dp,
                                     contentDescription = entry.title,
                                     fallbackIcon = if (entry.isVideo) MiuixIcons.Regular.Play else MiuixIcons.Regular.Folder,
+                                    size = 256,
                                 )
                                 if (selected) {
                                     Box(Modifier.fillMaxSize().squircleSurface(MiuixTheme.colorScheme.primary.copy(alpha = 0.25f), 12.dp))

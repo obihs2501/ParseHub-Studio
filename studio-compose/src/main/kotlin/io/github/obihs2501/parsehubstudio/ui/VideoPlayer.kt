@@ -207,7 +207,7 @@ private class PlayerHolder {
 
 /** 手绘暂停图标（miuix 图标集里没有 Pause）。 */
 @Composable
-private fun PauseGlyph(tint: Color) {
+internal fun PauseGlyph(tint: Color) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(Modifier.width(4.dp).height(16.dp).squircleBackground(tint, 1.dp))
         Box(Modifier.width(4.dp).height(16.dp).squircleBackground(tint, 1.dp))
@@ -216,7 +216,7 @@ private fun PauseGlyph(tint: Color) {
 
 /** 进度条：点 / 拖定位（自绘，避免依赖 miuix Slider 的版本差异）。 */
 @Composable
-private fun SeekBar(fraction: Double, modifier: Modifier = Modifier, onSeek: (Double) -> Unit) {
+internal fun SeekBar(fraction: Double, modifier: Modifier = Modifier, onSeek: (Double) -> Unit) {
     var widthPx by remember { mutableStateOf(1) }
     Box(
         modifier
@@ -245,7 +245,7 @@ private fun SeekBar(fraction: Double, modifier: Modifier = Modifier, onSeek: (Do
 
 /** 小胶囊按钮（播放器兜底操作用）。 */
 @Composable
-private fun SimpleChip(text: String, primary: Boolean = false, onClick: () -> Unit) {
+internal fun SimpleChip(text: String, primary: Boolean = false, onClick: () -> Unit) {
     val bg = if (primary) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.secondaryVariant
     val fg = if (primary) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantActions
     val interaction = remember { MutableInteractionSource() }

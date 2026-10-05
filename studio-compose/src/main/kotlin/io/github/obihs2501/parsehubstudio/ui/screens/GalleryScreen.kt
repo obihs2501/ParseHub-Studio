@@ -486,6 +486,8 @@ private fun MediaTile(
                 contentDescription = file.name,
                 contentScale = if (state.galleryCoverMode) ContentScale.Crop else ContentScale.Fit,
                 fallbackIcon = if (file.isVideo) MiuixIcons.Regular.Play else MiuixIcons.Regular.Folder,
+                // 按 512px 解码：高 DPI 屏上比按布局尺寸解码清晰得多
+                size = 512,
             )
             if (file.isVideo) {
                 Box(Modifier.align(Alignment.Center)) {

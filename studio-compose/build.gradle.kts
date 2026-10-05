@@ -59,6 +59,10 @@ dependencies {
     implementation("org.openjfx:javafx-media:$javafx:win")
     implementation("org.openjfx:javafx-swing:$javafx:win")
 
+    // 首选播放器：vlcj（调用本机安装的 VLC / libvlc）—— 覆盖 HEVC / .ts / MKV 等
+    // JavaFX 放不了的编码。找不到 VLC 时自动回退到 JavaFX 播放器，再回退系统播放器。
+    implementation("uk.co.caprica:vlcj:4.8.3")
+
     testImplementation(kotlin("test"))
 }
 

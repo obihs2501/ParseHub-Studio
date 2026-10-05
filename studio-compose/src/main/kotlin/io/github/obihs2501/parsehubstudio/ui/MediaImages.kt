@@ -66,6 +66,8 @@ object MediaImages {
  *
  * [model] 直接交给 Coil：远程是 /api/media 代理地址（String），本地是 `java.io.File`
  * —— 注意不要用 `File.toURI()`（`file:/C:/...` 这种单斜杠形式 Coil 解析不出来，实测会失败）。
+ *
+ * [size] > 0 时按该像素尺寸解码（比按布局尺寸解码更清晰，高 DPI 屏尤其明显）；0 = 用布局尺寸。
  */
 @Composable
 fun RemoteThumb(
@@ -75,9 +77,20 @@ fun RemoteThumb(
     contentDescription: String? = null,
     contentScale: ContentScale = ContentScale.Crop,
     fallbackIcon: ImageVector = MiuixIcons.Regular.Image,
+    size: Int = 0,
 ) {
     val loader = LocalImageLoader.current
     var failed by remember(model) { mutableStateOf(false) }
+    val request = remember(model, size) {
+        if (size <= 0 || model == null) {
+            null
+        } else {
+            coil3.request.ImageRequest.Builder(coil3.PlatformContext.INSTANCE)
+                .data(model)
+                .size(size, size)
+                .build()
+        }
+    }
     Box(
         modifier.squircleBackground(MiuixTheme.colorScheme.secondaryVariant, radius),
         contentAlignment = Alignment.Center,
@@ -91,7 +104,7 @@ fun RemoteThumb(
             )
         } else {
             AsyncImage(
-                model = model,
+                model = request ?: model,
                 imageLoader = loader,
                 contentDescription = contentDescription,
                 contentScale = contentScale,
