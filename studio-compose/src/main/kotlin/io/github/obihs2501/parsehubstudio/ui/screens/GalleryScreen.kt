@@ -4,13 +4,17 @@ import io.github.obihs2501.parsehubstudio.ui.AppFont
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -321,7 +325,20 @@ private fun GalleryContent(state: AppState) {
             else -> filtered.sortedBy { it.name.lowercase() }
         }.let { if (state.gallerySortDesc) it.reversed() else it }
 
-        LazyColumn(Modifier.fillMaxSize()) {
+        // 滚到接近底部就自动加载下一页（去掉「加载更多」按钮；x-spider 用哨兵 + 600px 预加载）
+        val listState = rememberLazyListState()
+        val nearBottom by remember {
+            derivedStateOf {
+                val info = listState.layoutInfo
+                val last = info.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
+                info.totalItemsCount > 0 && last >= info.totalItemsCount - 3
+            }
+        }
+        LaunchedEffect(nearBottom, sorted.size) {
+            if (nearBottom && state.galleryVisibleCount < sorted.size) state.galleryShowMore()
+        }
+
+        LazyColumn(Modifier.fillMaxSize(), state = listState) {
             if (state.gallerySubfolders.isNotEmpty()) {
                 item {
                     Text(
@@ -381,13 +398,6 @@ private fun GalleryContent(state: AppState) {
                 }
             }
 
-            if (visible.size < sorted.size) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                        TextButton("加载更多（已显示 ${visible.size} / ${sorted.size}）", onClick = { state.galleryShowMore() })
-                    }
-                }
-            }
             item { Spacer(Modifier.height(20.dp)) }
         }
     }
@@ -600,44 +610,54 @@ private fun MediaTile(
         thumb = if (file.isVideo) state.videoThumb(file) else file.file
     }
     val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
 
-    Column(modifier) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.75f)
-                .clickable(interaction, indication = null, onClick = onClick),
-        ) {
-            RemoteThumb(
-                model = thumb,
-                modifier = Modifier.fillMaxSize(),
-                radius = 12.dp,
-                contentDescription = file.name,
-                contentScale = if (state.galleryCoverMode) ContentScale.Crop else ContentScale.Fit,
-                fallbackIcon = if (file.isVideo) MiuixIcons.Regular.Play else MiuixIcons.Regular.Folder,
-                // 按 512px 解码：高 DPI 屏上比按布局尺寸解码清晰得多
-                size = 512,
-            )
-            if (file.isVideo) {
-                Box(Modifier.align(Alignment.Center)) {
-                    // 只是个「这是视频」的标记：点整块都进查看器，视频在应用内直接播放
-                    Box(
-                        Modifier
-                            .squircleSurface(MiuixTheme.colorScheme.primary.copy(alpha = 0.92f), 20.dp)
-                            .padding(8.dp),
-                    ) {
-                        Icon(MiuixIcons.Regular.Play, null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onPrimary)
-                    }
+    Box(
+        modifier
+            // 方形瓦片 + 悬停才浮出文件名：和 x-spider 的画廊一致，一屏能多放一行
+            .aspectRatio(1f)
+            .hoverable(interaction)
+            .clickable(interaction, indication = null, onClick = onClick),
+    ) {
+        RemoteThumb(
+            model = thumb,
+            modifier = Modifier.fillMaxSize(),
+            radius = 12.dp,
+            contentDescription = file.name,
+            contentScale = if (state.galleryCoverMode) ContentScale.Crop else ContentScale.Fit,
+            fallbackIcon = if (file.isVideo) MiuixIcons.Regular.Play else MiuixIcons.Regular.Folder,
+            // 按 512px 解码：高 DPI 屏上比按布局尺寸解码清晰得多
+            size = 512,
+        )
+        if (file.isVideo) {
+            Box(Modifier.align(Alignment.Center)) {
+                // 只是个「这是视频」的标记：点整块都进查看器，视频在应用内直接播放
+                Box(
+                    Modifier
+                        .squircleSurface(MiuixTheme.colorScheme.primary.copy(alpha = 0.92f), 20.dp)
+                        .padding(8.dp),
+                ) {
+                    Icon(MiuixIcons.Regular.Play, null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onPrimary)
                 }
             }
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            file.name,
-            style = MiuixTheme.textStyles.footnote2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (hovered) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(6.dp)
+                    .fillMaxWidth()
+                    .squircleSurface(Color.Black.copy(alpha = 0.62f), 8.dp)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    file.name,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }

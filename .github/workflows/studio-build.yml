@@ -243,7 +243,7 @@ jobs:
           New-Item -ItemType Directory -Force release | Out-Null
           Get-ChildItem C:\b\compose\binaries\main\msi\*.msi -ErrorAction SilentlyContinue | Copy-Item -Destination release/
           Get-ChildItem C:\b\compose\binaries\main\exe\*.exe -ErrorAction SilentlyContinue | Copy-Item -Destination release/
-          Compress-Archive -Path dist/ParseHubStudioCompose-portable -DestinationPath release/ParseHubStudioCompose-windows-x64-portable.zip
+          # 只发布独立安装包（用户要求不要便携版）：MSI / EXE
           $checksums = Get-ChildItem -LiteralPath release -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object {
             $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
             "$($hash.Hash.ToLower())  $($_.Name)"
@@ -263,6 +263,38 @@ jobs:
           path: |
             studio-compose/build/reports/**
             studio-compose/**/build/reports/**
+
+  release-compose:
+    name: Publish Compose (miuix) release
+    # feat/** 上直接发布安装包（要独立安装包，不要便携版）
+    if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/feat/')
+    needs: [compose]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ParseHubStudioCompose-windows-x64
+          path: release
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: compose-v0.6.0-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: ParseHub Studio (Compose/miuix) 0.6.0 · Build ${{ github.run_number }}
+          prerelease: true
+          body: |
+            Windows 10/11 x64 · Compose Multiplatform + miuix 前端（`studio-compose/`），独立安装包。
+
+            - 安装包：`ParseHubStudio-0.6.0.msi`（推荐）或 `ParseHubStudio-0.6.0.exe`。
+              升级 UUID 固定 + 版本号更高，可直接覆盖安装本系列的旧版本；
+              如果装过旧 Tauri 版（0.4.x），建议先在「应用和功能」里卸载一次再装这个。
+            - 应用内播放视频需要本机安装 VLC（HEVC / .ts 等由 VLC 解码）；未安装时会提示并可用系统播放器打开。
+            - 内置 MiSans 字体（Regular / Medium / Demibold）；本机装有 PingFang SC 时优先使用 PingFang。
+            - 首次运行自动启动随包的 Python sidecar，无需安装 Python。
+            - 未签名预览版：Windows SmartScreen 可能提示「未知发布者」。
+          files: release/*
+          fail_on_unmatched_files: true
 
   release:
     name: Publish tested Windows binaries

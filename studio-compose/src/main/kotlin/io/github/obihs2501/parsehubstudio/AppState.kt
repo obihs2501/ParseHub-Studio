@@ -8,6 +8,10 @@ import androidx.compose.runtime.setValue
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.request.ImageRequest
+import io.github.obihs2501.parsehubstudio.library.CachedFolder
+import io.github.obihs2501.parsehubstudio.library.CachedGallery
+import io.github.obihs2501.parsehubstudio.library.CachedRoot
+import io.github.obihs2501.parsehubstudio.library.GalleryCacheStore
 import io.github.obihs2501.parsehubstudio.library.GalleryRootsStore
 import io.github.obihs2501.parsehubstudio.library.ImageInfo
 import io.github.obihs2501.parsehubstudio.library.LocalLibrary
@@ -620,36 +624,24 @@ class AppState(
     /**
      * 本地文件（图库）→ 灯箱条目。
      *
-     * 视频只给首帧缩略图：Coil 解不了 mp4，把视频文件原样丢进去只会得到「无法加载该媒体」；
-     * 原文件交给播放器（见 [playVideo]）。
+     * **同步构造、立即显示**：早先这里对整卷文件逐个读文件头 / 抽视频首帧，
+     * 几百张的文件夹点开后要等好几秒才弹出查看器。
+     * 分辨率与视频首帧改成进查看器后按当前项懒加载（见 LightboxOverlay）；
+     * 视频只给播放器（Coil 解不了 mp4）。
      */
     fun openLocalLightbox(files: List<LocalLibrary.MediaFile>, index: Int) {
         if (files.isEmpty()) return
-        val start = index.coerceIn(0, files.size - 1)
-        scope.launch {
-            val items = files.map { f ->
-                val isVideo = f.isVideo
-                // 读文件头拿原始分辨率（不解码）：标题栏显示分辨率、1:1 都按真实像素算
-                val dims = if (isVideo) null else withContext(Dispatchers.IO) { ImageInfo.dimensions(f.file) }
-                ViewerItem(
-                    title = f.name,
-                    isVideo = isVideo,
-                    previewModel = if (isVideo) {
-                        withContext(Dispatchers.IO) {
-                            val binary = ffmpeg() ?: return@withContext null
-                            runCatching { VideoThumbs.ensure(f.file, binary) }.getOrNull()
-                        }
-                    } else null,
-                    // 直接把 File 交给 Coil：File.toURI() 的 "file:/C:/…" 形式 Coil 解析不出来（实测失败）
-                    originalModel = if (isVideo) null else f.file,
-                    meta = listOfNotNull(formatBytes(f.sizeBytes), formatTimestamp(f.modifiedAt / 1000.0)).joinToString(" · "),
-                    localPath = f.path,
-                    width = dims?.first ?: 0,
-                    height = dims?.second ?: 0,
-                )
-            }
-            lightbox = LightboxState(items, start)
+        val items = files.map { f ->
+            ViewerItem(
+                title = f.name,
+                isVideo = f.isVideo,
+                // 直接把 File 交给 Coil：File.toURI() 的 "file:/C:/…" 形式 Coil 解析不出来（实测失败）
+                originalModel = if (f.isVideo) null else f.file,
+                meta = listOfNotNull(formatBytes(f.sizeBytes), formatTimestamp(f.modifiedAt / 1000.0)).joinToString(" · "),
+                localPath = f.path,
+            )
         }
+        lightbox = LightboxState(items, index.coerceIn(0, items.size - 1))
     }
 
     fun closeLightbox() {
@@ -749,27 +741,83 @@ class AppState(
         }
     }
 
-    /** 扫描所有根目录（下载目录 + 额外添加的文件夹）。 */
+    /** 根目录「签名」（目录最后修改时间）：用来判断是否需要重扫。 */
+    private var rootSignatures: List<Long> = emptyList()
+
+    private fun signatureOf(path: String): Long =
+        runCatching { java.io.File(path).lastModified() }.getOrDefault(0L)
+
+    private fun rootNameOf(path: String): String {
+        val defaultDir = settings?.defaultSaveDir.orEmpty()
+        return if (path == defaultDir) "下载目录" else java.io.File(path).name.ifBlank { path }
+    }
+
+    private fun applyRootGroups(groups: List<GalleryRootGroup>) {
+        galleryRootGroups.clear(); galleryRootGroups.addAll(groups)
+        galleryRoots.clear(); galleryRoots.addAll(groups.flatMap { it.folders })
+    }
+
+    /**
+     * 扫描所有根目录（下载目录 + 额外添加的文件夹）。
+     *
+     * 「每次打开都重新扫描」的修复（参考 x-spider 的 scannedAt 做法）：
+     * 1. 根目录签名（mtime）没变 → 直接用内存结果，不重扫；
+     * 2. 启动后第一次进图库 → 先用持久化快照铺上界面（不用等扫描），签名一致就直接结束；
+     * 3. 只有签名变化、或点「重新扫描」才真正扫盘。
+     */
     fun loadGallery(force: Boolean = false) {
         ensureRootsLoaded()
         val roots = galleryRootPaths()
         if (roots.isEmpty()) { showToast("请先在设置里配置下载目录"); return }
-        if (force) galleryCache.clear()
         val defaultDir = settings?.defaultSaveDir.orEmpty()
+        val signatures = roots.map(::signatureOf)
+
+        if (!force && galleryRootGroups.size == roots.size && signatures == rootSignatures) return
+
+        if (!force && galleryRootGroups.isEmpty()) {
+            val cached = GalleryCacheStore.load()
+            if (cached.roots.map { it.path } == roots) {
+                applyRootGroups(
+                    cached.roots.map { r ->
+                        GalleryRootGroup(
+                            path = r.path,
+                            name = rootNameOf(r.path),
+                            removable = r.path != defaultDir,
+                            folders = r.folders.map { LocalLibrary.Folder(it.name, it.path, it.modifiedAt, it.mediaCount) },
+                        )
+                    },
+                )
+                rootSignatures = cached.roots.map { it.signature }
+                if (signatures == rootSignatures) return // 快照仍然有效，不用扫
+            }
+        }
+
+        if (force) galleryCache.clear()
         scope.launch {
             galleryScanning = true
             val groups = withContext(Dispatchers.IO) {
                 roots.map { root ->
                     GalleryRootGroup(
                         path = root,
-                        name = if (root == defaultDir) "下载目录" else java.io.File(root).name.ifBlank { root },
+                        name = rootNameOf(root),
                         removable = root != defaultDir,
                         folders = runCatching { LocalLibrary.scanRoot(root) }.getOrDefault(emptyList()),
                     )
                 }
             }
-            galleryRootGroups.clear(); galleryRootGroups.addAll(groups)
-            galleryRoots.clear(); galleryRoots.addAll(groups.flatMap { it.folders })
+            applyRootGroups(groups)
+            rootSignatures = signatures
+            GalleryCacheStore.save(
+                CachedGallery(
+                    roots = groups.mapIndexed { index, group ->
+                        CachedRoot(
+                            path = group.path,
+                            signature = signatures.getOrElse(index) { 0L },
+                            folders = group.folders.map { CachedFolder(it.name, it.path, it.modifiedAt, it.mediaCount) },
+                        )
+                    },
+                ),
+            )
             galleryScanning = false
         }
     }

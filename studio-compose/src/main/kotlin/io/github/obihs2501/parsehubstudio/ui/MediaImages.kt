@@ -19,7 +19,6 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.compose.AsyncImage
 import coil3.network.ktor3.KtorNetworkFetcherFactory
-import coil3.request.crossfade
 import coil3.util.DebugLogger
 import coil3.util.Logger
 import io.ktor.client.HttpClient
@@ -27,6 +26,7 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.header
+import kotlinx.coroutines.Dispatchers
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Image
@@ -54,9 +54,12 @@ object MediaImages {
         }
         return ImageLoader.Builder(PlatformContext.INSTANCE)
             .components { add(KtorNetworkFetcherFactory(httpClient = { client })) }
+            // 解码并发限到 2：本地大图（实测 40MP+）解码是纯 CPU 活，默认按 CPU 数并行
+            // 会把整机拖满 —— 滚动图库时表现为「高占用 + 卡顿」
+            .decoderCoroutineContext(Dispatchers.IO.limitedParallelism(2))
             // 默认静默（失败在界面上表现为占位图）；排查图片问题时用 PARSEHUB_IMAGE_DEBUG=1 打开全量日志
             .logger(if (System.getenv("PARSEHUB_IMAGE_DEBUG") != null) DebugLogger(Logger.Level.Debug) else null)
-            .crossfade(true)
+            // 不要淡入动画：图库滚动时它既费 GPU 又让「点了图要等一下」的感觉更明显
             .build()
     }
 }

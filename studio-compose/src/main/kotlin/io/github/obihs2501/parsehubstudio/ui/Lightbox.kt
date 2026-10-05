@@ -53,6 +53,9 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.size.Size as CoilSize
 import io.github.obihs2501.parsehubstudio.AppState
+import io.github.obihs2501.parsehubstudio.library.ImageInfo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -171,9 +174,16 @@ fun LightboxOverlay(state: AppState) {
         }
     }
 
-    // 参考尺寸：优先原图像素尺寸（本地读文件头即得，不用等解码）
-    val refSize = if (item.width > 0 && item.height > 0) {
-        Size(item.width.toFloat(), item.height.toFloat())
+    // 参考尺寸：优先原图像素尺寸 —— 进查看器后按当前项懒加载（打开瞬间不等 IO）
+    var refDims by remember(item) { mutableStateOf(item.width to item.height) }
+    LaunchedEffect(item) {
+        if (item.isVideo || item.width > 0 || refDims.first > 0) return@LaunchedEffect
+        val path = item.localPath ?: return@LaunchedEffect
+        val dims = withContext(Dispatchers.IO) { ImageInfo.dimensions(java.io.File(path)) } ?: return@LaunchedEffect
+        refDims = dims
+    }
+    val refSize = if (refDims.first > 0 && refDims.second > 0) {
+        Size(refDims.first.toFloat(), refDims.second.toFloat())
     } else {
         imageSize
     }
@@ -296,7 +306,7 @@ fun LightboxOverlay(state: AppState) {
                     contentAlignment = Alignment.Center,
                 ) {
                     when {
-                        // 本地视频：装了 VLC 就用 VLC（编解码最全），否则内置 JavaFX 播放器
+                        // 本地视频：用 VLC 播放（内置播放器已按反馈移除，省掉 ~35MB native）
                         isVideo && item.localPath != null -> {
                             val path = item.localPath
                             if (VlcSupport.available) {
@@ -306,10 +316,9 @@ fun LightboxOverlay(state: AppState) {
                                     onFallback = { state.playVideo(path) },
                                 )
                             } else {
-                                EmbeddedVideoPlayer(
-                                    file = java.io.File(path),
-                                    modifier = Modifier.fillMaxSize(),
-                                    onFallback = { state.playVideo(path) },
+                                VideoUnavailableNotice(
+                                    onPlayExternal = { state.playVideo(path) },
+                                    onGetVlc = { state.openUrl("https://www.videolan.org/vlc/") },
                                 )
                             }
                         }
@@ -472,7 +481,7 @@ fun LightboxOverlay(state: AppState) {
     }
 }
 
-/** 视频占位（远程视频）：首帧缩略图 + 提示。本地视频走 EmbeddedVideoPlayer。 */
+/** 视频占位（远程视频）：首帧缩略图 + 提示。本地视频走 VLC 播放器。 */
 @Composable
 private fun VideoStage(item: ViewerItem, model: Any?) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

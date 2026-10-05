@@ -8,7 +8,8 @@ plugins {
 }
 
 group = "io.github.obihs2501.parsehubstudio"
-version = "0.5.0"
+// 0.6.0：高于旧版（Tauri 线 0.4.x 与 Compose 线 0.5.0），配合固定的 upgradeUuid 可直接覆盖安装
+version = "0.6.0"
 
 // WiX light.exe 在 Windows 上对路径长度敏感（CI 上 D:\a\... 会触发 exit 311）。
 // 允许通过环境变量把 build 目录指到短路径。
@@ -50,17 +51,9 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.15.0")
     implementation("net.java.dev.jna:jna-platform:5.15.0")
 
-    // 内置视频播放器：JavaFX Media —— 自带 H.264/AAC 解码器（win 分类器 jar 里含 native），
-    // 不依赖本机装 VLC，也不像 Edge --app 那样放不了 HEVC / 独立 .ts。
-    // 通过 JFXPanel + Compose SwingPanel 嵌入（classpath 方式使用，无需模块化）。
-    val javafx = "21.0.5"
-    implementation("org.openjfx:javafx-base:$javafx:win")
-    implementation("org.openjfx:javafx-graphics:$javafx:win")
-    implementation("org.openjfx:javafx-media:$javafx:win")
-    implementation("org.openjfx:javafx-swing:$javafx:win")
-
-    // 首选播放器：vlcj（调用本机安装的 VLC / libvlc）—— 覆盖 HEVC / .ts / MKV 等
-    // JavaFX 放不了的编码。找不到 VLC 时自动回退到 JavaFX 播放器，再回退系统播放器。
+    // 播放器：只用 vlcj（调用本机安装的 VLC / libvlc）—— 覆盖 HEVC / .ts / MKV 等。
+    // 内置 JavaFX 播放器已按反馈移除：它只能放 H.264/AAC，还白占约 35 MB native。
+    // 没装 VLC 时界面给出「下载 VLC / 用系统播放器打开」。
     implementation("uk.co.caprica:vlcj:4.8.3")
 
     testImplementation(kotlin("test"))
@@ -77,7 +70,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "ParseHubStudio"
-            packageVersion = "0.5.0"
+            packageVersion = "0.6.0"
             description = "ParseHub 可视化桌面应用：解析社交平台内容并可视化预览、下载"
             copyright = "ParseHub and ParseHub Studio contributors"
             vendor = "obihs2501"

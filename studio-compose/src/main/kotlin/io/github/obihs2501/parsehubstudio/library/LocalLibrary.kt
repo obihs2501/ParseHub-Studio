@@ -1,11 +1,13 @@
 package io.github.obihs2501.parsehubstudio.library
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
 
 /**
  * 本地图库的数据源：直接扫描下载目录（不经过后端）。
@@ -130,7 +132,12 @@ object VideoThumbs {
         }.getOrNull()
     }
 
-    /** 取（或生成）视频首帧缩略图；失败返回 null。 */
+    /**
+     * 取（或生成）视频首帧缩略图；失败返回 null。
+     *
+     * 参考 x-spider：卡片进视口才排队生成、离开视口就取消 —— 协程被取消时**立刻销毁 ffmpeg**，
+     * 不让它继续跑完（滚动图库时白占 CPU 就是这么来的）。
+     */
     suspend fun ensure(video: File, ffmpeg: String): File? = withContext(Dispatchers.IO) {
         if (!video.isFile) return@withContext null
         val dir = cacheDir()
@@ -140,17 +147,30 @@ object VideoThumbs {
         if (target.isFile && target.length() > 0) return@withContext target
         semaphore.withPermit {
             if (target.isFile && target.length() > 0) return@withPermit target
-            runCatching {
-                val process = ProcessBuilder(
+            val process = runCatching {
+                ProcessBuilder(
                     ffmpeg, "-y", "-loglevel", "error",
                     "-i", video.absolutePath,
                     "-frames:v", "1",
                     "-vf", "scale=640:-2",
                     "-q:v", "4",
                     target.absolutePath,
-                ).redirectErrorStream(true).start()
-                process.inputStream.readBytes()
-                process.waitFor(30, TimeUnit.SECONDS)
+                )
+                    // 丢弃输出：不占管道、也不会因为没读管道把 ffmpeg 卡住
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start()
+            }.getOrNull() ?: return@withPermit null
+
+            runCatching {
+                val deadline = System.currentTimeMillis() + 30_000
+                while (process.isAlive && System.currentTimeMillis() < deadline) {
+                    if (!coroutineContext.isActive) {
+                        process.destroy()
+                        return@withPermit null
+                    }
+                    process.waitFor(120, TimeUnit.MILLISECONDS)
+                }
                 if (target.isFile && target.length() > 0) target else null
             }.getOrNull()
         }
