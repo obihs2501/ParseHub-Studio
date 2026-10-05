@@ -24,7 +24,6 @@ repositories {
 
 dependencies {
     implementation(compose.desktop.currentOs)
-    implementation(compose.materialIconsExtended)
 
     // miuix UI 组件库（Apache-2.0）
     val miuix = "0.9.4"

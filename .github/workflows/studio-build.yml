@@ -173,6 +173,11 @@ jobs:
           java-version: "21"
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+      - name: Exclude build dirs from Windows Defender
+        continue-on-error: true
+        run: |
+          # Defender 实时扫描会锁住 WiX cabinet，导致 light.exe 返回 311
+          Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, C:\b, C:\t -ErrorAction SilentlyContinue
       - name: Build Python sidecar (reused by Compose app)
         working-directory: studio
         run: |
@@ -194,15 +199,29 @@ jobs:
           New-Item -ItemType Directory -Force C:\b | Out-Null
           .\gradlew.bat --no-daemon compileKotlin
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Package MSI and EXE installers
+      - name: Create distributable (no WiX required)
         env:
-          # WiX light.exe 在长路径下会返回 311；把 build 输出与临时目录都指到短路径
+          PARSEHUB_BUILD_DIR: C:\b
+        run: |
+          .\gradlew.bat --no-daemon createDistributable
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Assemble portable app
+        run: |
+          New-Item -ItemType Directory -Force dist/ParseHubStudioCompose-portable | Out-Null
+          Copy-Item -Recurse -Force C:\b\compose\binaries\main\app\ParseHubStudio\* dist/ParseHubStudioCompose-portable/
+          Copy-Item -Force ../LICENSE dist/ParseHubStudioCompose-portable/
+          # sidecar 已随 appResourcesRootDir 打进 app/resources/
+          Get-ChildItem -Recurse -Path dist/ParseHubStudioCompose-portable -Filter parsehub-sidecar.exe |
+            Select-Object -First 1 | ForEach-Object { Write-Host "Bundled sidecar: $($_.FullName)" }
+      - name: Package MSI and EXE installers (best effort)
+        id: pkg
+        continue-on-error: true
+        env:
           PARSEHUB_BUILD_DIR: C:\b
           TEMP: C:\t
           TMP: C:\t
         run: |
           New-Item -ItemType Directory -Force C:\t | Out-Null
-          New-Item -ItemType Directory -Force C:\b | Out-Null
           .\gradlew.bat --no-daemon packageMsi packageExe
           if ($LASTEXITCODE) {
             Write-Host '::group::jpackage logs'
@@ -214,16 +233,11 @@ jobs:
             Write-Host 'Retrying packaging once after clearing WiX cache...'
             Remove-Item -Recurse -Force C:\b\wix311 -ErrorAction SilentlyContinue
             .\gradlew.bat --no-daemon packageMsi packageExe
-            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            if ($LASTEXITCODE) {
+              Write-Host '::warning::MSI/EXE packaging failed (WiX); portable build is still published.'
+              exit 0
+            }
           }
-      - name: Assemble portable app
-        run: |
-          New-Item -ItemType Directory -Force dist/ParseHubStudioCompose-portable | Out-Null
-          Copy-Item -Recurse -Force C:\b\compose\binaries\main\app\ParseHubStudio\* dist/ParseHubStudioCompose-portable/
-          Copy-Item -Force ../LICENSE dist/ParseHubStudioCompose-portable/
-          # sidecar 已随 appResourcesRootDir 打进 app/resources/
-          Get-ChildItem -Recurse -Path dist/ParseHubStudioCompose-portable -Filter parsehub-sidecar.exe |
-            Select-Object -First 1 | ForEach-Object { Write-Host "Bundled sidecar: $($_.FullName)" }
       - name: Collect Compose release files and checksums
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
