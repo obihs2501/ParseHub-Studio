@@ -194,7 +194,18 @@ jobs:
       - name: Package MSI and EXE installers
         run: |
           .\gradlew.bat --no-daemon packageMsi packageExe
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if ($LASTEXITCODE) {
+            Write-Host '::group::jpackage logs'
+            Get-ChildItem -Recurse -Path build/compose/logs -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "----- $($_.FullName) -----"
+              Get-Content -LiteralPath $_.FullName -ErrorAction SilentlyContinue
+            }
+            Write-Host '::endgroup::'
+            Write-Host 'Retrying packaging once after clearing WiX cache...'
+            Remove-Item -Recurse -Force build/wix311 -ErrorAction SilentlyContinue
+            .\gradlew.bat --no-daemon packageMsi packageExe
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
       - name: Assemble portable app
         run: |
           New-Item -ItemType Directory -Force dist/ParseHubStudioCompose-portable | Out-Null
