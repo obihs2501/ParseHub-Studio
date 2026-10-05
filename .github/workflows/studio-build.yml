@@ -44,6 +44,8 @@ jobs:
 
   windows:
     name: Windows x64 installer and portable
+    # 仅 master/main 构建原 Tauri 版本；特性分支只编译 Compose
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
     needs: test
     runs-on: windows-latest
     timeout-minutes: 60

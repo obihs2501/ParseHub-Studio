@@ -32,7 +32,7 @@ fun CookiesScreen(state: AppState) {
                         title = entry.name.ifBlank { "账户 ${index + 1}" },
                         summary = if (entry.enabled) "已启用 · 每次解析轮换" else "已停用",
                         trailing = {
-                            Switch(entry.enabled) { enabled ->
+                            Switch(entry.enabled, onCheckedChange = { enabled ->
                                 state.toggleCookie(platform.id, entry.id, enabled)
                             }
                         },

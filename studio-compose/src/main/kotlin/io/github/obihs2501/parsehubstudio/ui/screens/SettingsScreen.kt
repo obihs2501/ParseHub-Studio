@@ -26,11 +26,11 @@ fun SettingsScreen(state: AppState) {
         PrefRow("多连接分片下载", "当前 ${s.connections} 路（1–32）")
         RowDivider()
         PrefRow("保存元数据", "写入标题、作者、作品 ID") {
-            Switch(s.saveMetadata) { v -> state.saveSettings(mapOf("save_metadata" to JsonPrimitive(v))) }
+            Switch(s.saveMetadata, onCheckedChange = { v -> state.saveSettings(mapOf("save_metadata" to JsonPrimitive(v))) })
         }
         RowDivider()
         PrefRow("下载规格", if (s.downloadQuality == "origin") "原图 / 原视频" else "预览图（缩略图）") {
-            Switch(s.downloadQuality == "origin") { v ->
+            Switch(s.downloadQuality == "origin", onCheckedChange = { v ->
                 state.saveSettings(mapOf("download_quality" to JsonPrimitive(if (v) "origin" else "thumb")))
             }
         }
@@ -39,13 +39,13 @@ fun SettingsScreen(state: AppState) {
     SectionTitle("外观与预览")
     SectionCard {
         PrefRow("深色主题", "关闭则使用浅色") {
-            Switch(s.theme == "dark") { v ->
+            Switch(s.theme == "dark", onCheckedChange = { v ->
                 state.saveSettings(mapOf("theme" to JsonPrimitive(if (v) "dark" else "light")))
             }
         }
         RowDivider()
         PrefRow("高清预览", "网格使用高清预览；取消则直接加载原图") {
-            Switch(s.previewMode) { v -> state.saveSettings(mapOf("preview_mode" to JsonPrimitive(v))) }
+            Switch(s.previewMode, onCheckedChange = { v -> state.saveSettings(mapOf("preview_mode" to JsonPrimitive(v))) })
         }
     }
 
@@ -65,7 +65,7 @@ fun SettingsScreen(state: AppState) {
         PrefRow("文件名模板", s.fileTemplate)
         RowDivider()
         PrefRow("合并同名作者目录", "多次下载进入同一作者目录") {
-            Switch(s.mergeAuthorFolders) { v ->
+            Switch(s.mergeAuthorFolders, onCheckedChange = { v ->
                 state.saveSettings(mapOf("merge_author_folders" to JsonPrimitive(v)))
             }
         }

@@ -63,11 +63,11 @@ fun ParseScreen(state: AppState) {
     SectionTitle("解析选项")
     SectionCard {
         PrefRow("使用已保存的代理 / Cookie", "按平台轮换 Cookie 池，显式配置优先") {
-            Switch(state.useSavedConfig) { state.useSavedConfig = it }
+            Switch(state.useSavedConfig, onCheckedChange = { state.useSavedConfig = it })
         }
         RowDivider()
         PrefRow("同名文件夹合并归档", "多次下载进入同一作者目录，已有文件不覆盖") {
-            Switch(state.settings?.mergeAuthorFolders ?: true) { v ->
+            Switch(state.settings?.mergeAuthorFolders ?: true, onCheckedChange = { v ->
                 state.saveSettings(mapOf("merge_author_folders" to kotlinx.serialization.json.JsonPrimitive(v)))
             }
         }
