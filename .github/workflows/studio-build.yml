@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [master, main]
-    paths: ["studio/**", "src/**", "test/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
+    paths: ["studio/**", "studio-compose/**", "src/**", "test/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
   pull_request:
-    paths: ["studio/**", "src/**", "test/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
+    paths: ["studio/**", "studio-compose/**", "src/**", "test/**", "pyproject.toml", ".github/workflows/studio-build.yml"]
 
 permissions:
   contents: read
@@ -147,6 +147,83 @@ jobs:
         with:
           name: build-diagnostics
           path: studio/dist/diagnostics/
+
+  compose:
+    name: Windows x64 Compose (miuix) installer and portable
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: studio-compose
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build Python sidecar (reused by Compose app)
+        working-directory: studio
+        run: |
+          uv sync --locked --group build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run python packaging/make_icon.py
+          uv run pyinstaller --noconfirm --clean packaging/parsehub_studio.spec
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run python packaging/check_bundle.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Stage sidecar next to Compose app resources
+        run: |
+          New-Item -ItemType Directory -Force resources | Out-Null
+          Copy-Item -LiteralPath ../studio/dist/parsehub-sidecar.exe -Destination resources/parsehub-sidecar.exe
+      - name: Build Compose app (compile check)
+        run: |
+          .\gradlew.bat --no-daemon compileKotlin
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Package MSI and EXE installers
+        run: |
+          .\gradlew.bat --no-daemon packageMsi packageExe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Assemble portable app
+        run: |
+          New-Item -ItemType Directory -Force dist/ParseHubStudioCompose-portable | Out-Null
+          Copy-Item -Recurse -Force build/compose/binaries/main/app/ParseHubStudio/* dist/ParseHubStudioCompose-portable/
+          Copy-Item -Force ../studio/dist/parsehub-sidecar.exe dist/ParseHubStudioCompose-portable/parsehub-sidecar.exe
+          Copy-Item -Force ../LICENSE dist/ParseHubStudioCompose-portable/
+      - name: Collect Compose release files and checksums
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Get-ChildItem build/compose/binaries/main/msi/*.msi -ErrorAction SilentlyContinue | Copy-Item -Destination release/
+          Get-ChildItem build/compose/binaries/main/exe/*.exe -ErrorAction SilentlyContinue | Copy-Item -Destination release/
+          Compress-Archive -Path dist/ParseHubStudioCompose-portable -DestinationPath release/ParseHubStudioCompose-windows-x64-portable.zip
+          $checksums = Get-ChildItem -LiteralPath release -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object {
+            $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
+            "$($hash.Hash.ToLower())  $($_.Name)"
+          }
+          $checksums | Out-File -Encoding utf8 release/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ParseHubStudioCompose-windows-x64
+          path: studio-compose/release/*
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload Compose build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-build-diagnostics
+          path: |
+            studio-compose/build/reports/**
+            studio-compose/**/build/reports/**
 
   release:
     name: Publish tested Windows binaries
