@@ -10,6 +10,7 @@ import httpx
 
 from ... import ProgressCallback
 from ...provider_api.douyin import DouyinMobileCrawler, DouyinMobileDevice, DouyinWebCrawler
+from ...provider_api.douyin_browser import enhance_with_browser
 from ...types import (
     DownloadResult,
     ImageParseResult,
@@ -117,6 +118,8 @@ class DouyinParser(BaseParser):
             mobile_device = DouyinMobileDevice.resolve()
             app_crawler = DouyinMobileCrawler(proxy=self.proxy, device=mobile_device)
             response = await app_crawler.parse(raw_url)
+            # 移动端接口常常只给 720P 及以下：用系统浏览器补高清档（内部保证绝不抛异常，失败静默跳过）
+            await enhance_with_browser(response, raw_url, proxy=self.proxy)
             return DouyinApiResult.parse(response)
         except ParseError as e:
             mobile_error = e

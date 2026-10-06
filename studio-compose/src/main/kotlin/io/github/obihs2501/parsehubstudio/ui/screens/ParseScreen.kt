@@ -4,8 +4,10 @@ import io.github.obihs2501.parsehubstudio.ui.AppFont
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
@@ -196,11 +198,13 @@ fun ParseScreen(state: AppState) {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                // 画质选择：抖音会给出多档码流（原画 4K / 1440P / 1080P / 720P…），按体积标注
+                // 画质选择：抖音会给出多档码流（原画 4K / 1440P / 1080P / 720P…），按体积标注。
+                // 档位可能有十几个，芯片行必须能横向滚动，否则会溢出到窗口外。
                 val variants = result.media.firstOrNull()?.variants.orEmpty()
                 if (variants.size > 1) {
                     Spacer(Modifier.height(12.dp))
                     Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -220,7 +224,8 @@ fun ParseScreen(state: AppState) {
                     if (result.platform?.id == "douyin" && variants.first().shortSide in 1..1079) {
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "只拿到 ${variants.first().shortSide}P：在「账户与代理」里配置抖音 Cookie 后重新解析，可拿 4K 原画",
+                            "只拿到 ${variants.first().shortSide}P：解析时会自动用系统 Edge/Chrome 抓高清档，若失败可检查是否装了浏览器；" +
+                                "在「账户与代理」里配置抖音 Cookie 也能拿高清档",
                             style = MiuixTheme.textStyles.footnote2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
