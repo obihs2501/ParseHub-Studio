@@ -83,6 +83,12 @@ http://127.0.0.1:N/api/...  （Bearer token 鉴权）
 
 > 这条回退让 `./gradlew run` 无需先 PyInstaller 打包，改 Python 代码即时生效。
 
+### sidecar 的 stderr（诊断用）
+
+`SidecarProcess` 起一个常驻线程读 stderr：写入 `%LOCALAPPDATA%/ParseHubStudio/sidecar.log`，并在内存里留最后 40 行。启动失败时错误信息带「退出码 + 这段输出 + 日志路径」。
+
+早先 stderr 管道没人读（`redirectErrorStream(false)` 之后一直悬着）：子进程写满约 64KB 就永久阻塞，表现和「启动超时」一模一样；而且崩溃的真实原因（如 `ImportError: DLL load failed while importing _ctypes`）只剩一句「Python 服务启动失败或超时」，只能手动跑 exe 才能查出来。
+
 ---
 
 ## 3. API 契约（28 个路由）
@@ -103,8 +109,9 @@ http://127.0.0.1:N/api/...  （Bearer token 鉴权）
 
 数据模型见 `model/Models.kt`。注意：`/api/platforms` 的字段是 **`supported_types`**（复数），不是 `supported_type`。
 
-### 三个易踩的坑
+### 四个易踩的坑
 
+- **`published_at` 是 `int | str`**：抖音给的是 `create_time`（epoch 秒，JSON 里是数字），微博给 ISO 日期串。Compose 模型必须用 `StringOrNumberSerializer` 兼容两种 —— 写死 String 时抖音解析结果直接抛 `Expected quotation mark '', but had '1' instead at path: $.published_at`，解析工作台整页不可用（2026-10-05 用户报障）。`/api/parse`、`/api/batches`、`/api/tasks` 三处的 payload 都带这个字段。回归测试：`ModelDecodeTest`。
 - **Cookie 池不支持删除条目**：`/api/config/cookie-pool` 只支持「添加」和「启用/停用」（`entry_id` + `enabled`），所以 UI 只给开关，没有删除按钮。
 - **历史里的媒体直链会过期**：历史保存的是解析当时的 `media[].url`。UI 里「下载」「保存到下载目录」都把原帖链接交给后端重新解析（`createTask` 内部会重新 parse），所以过期不影响下载；只有「大图」可能加载失败，此时用「更新信息」重新解析刷新记录。
 - **metadata.json 是写死的固定文件名**：`src/parsehub/types/result.py` 往作品输出目录写死 `metadata.json`；归档时（`studio/src/parsehub_studio/archive.py`）遇到同名文件会改名为 `metadata_2.json`。若文件夹模板不含 `{id}`（例如 `{platform}_{author}`），同一作者的不同作品会进同一目录，于是出现 `metadata_2.json` —— **不会覆盖，但难以对应到具体作品**。Compose 版在文件夹模板对话框里对这种模板给出警告并提供「追加 {id}」一键修复；根治要改库（如 `metadata_{id}.json`），会影响 CLI 与 Tauri 版，本分支未动。
@@ -129,6 +136,15 @@ uv sync --locked --group build
 uv run python packaging/make_icon.py
 uv run pyinstaller --noconfirm --clean packaging/parsehub_studio.spec
 ```
+
+### 打包 sidecar 的 DLL 固定（2026-10-05 事故）
+
+conda 把运行时 DLL 放在 `<prefix>/Library/bin`，PyInstaller 不会自动去那里找：不显式固定时 `bindepend` 按 PATH 抓到 `C:\Program Files\Git\mingw64\bin` 的 OpenSSL 和 MuMu 模拟器的 liblzma/libexpat，而 `_ctypes` 需要的 `ffi.dll` 因为找不到被**静默丢弃** —— 产物一启动就 `ImportError: DLL load failed while importing _ctypes`（本机 PATH 上恰好有 Git 的 ffi.dll，本机测试「假绿」，换台机器必挂）。
+
+- `packaging/parsehub_studio.spec`：按「`<prefix>\Library\bin`（conda）→ 解释器根 → `DLLs`」的顺序把 7 组运行时 DLL（ffi / libssl / libcrypto / sqlite3 / liblzma / libbz2 / libexpat）显式固定，并剔除 `ucrtbase.dll`（系统级 CRT，不随包分发）—— conda 与 python.org 两种布局都生效，不再是 conda 专用；
+- `packaging/check_bundle.py`：新增「扩展模块 ↔ 依赖 DLL 齐全性」校验与外来工具链来源拦截（git\mingw / msys / MuMu），构建期硬失败 —— 早先它只查「有没有混进禁止包」，拦不住这类问题。判定规则是「环境里有这个 DLL、包里却没有」才报错，所以静态链接的布局（python.org 的 _lzma/_bz2/pyexpat）不会误报，这三项降级为 `::warning::`；禁止包检查继续读 Analysis-00.toc（纯 Python 模块只在那里），DLL/来源检查读最终产物 EXE-00.toc；
+- 本地打包用 uv 环境（`uv sync --locked --group build` 后 `uv run pyinstaller …`），**别用 anaconda 里的 PyInstaller**（本机打包曾绕开 `uv.lock`，打出的包才会带上这些外来 DLL）；
+- 冒烟测试：`uv run python tests/sidecar_check.py --executable dist/parsehub-sidecar.exe`（真起 exe 打 API）。
 
 ### 打包
 
@@ -174,10 +190,11 @@ maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
 1. 构建 Python sidecar（`studio/`，pyinstaller）
 2. 把 sidecar 复制到 `studio-compose/resources/common/parsehub-sidecar.exe`
 3. `compileKotlin`（编译检查）
-4. `createDistributable`（**不依赖 WiX**）
-5. 组装免安装包 `dist/ParseHubStudioCompose-portable/`
-6. `packageMsi packageExe`（**best-effort**，失败仅告警不阻塞）
-7. 收集产物 + SHA256 → 上传 artifact `ParseHubStudioCompose-windows-x64`
+4. `test`（Kotlin 单测，含 `published_at` 解码回归 `ModelDecodeTest`）
+5. `createDistributable`（**不依赖 WiX**）
+6. 组装免安装包 `dist/ParseHubStudioCompose-portable/`
+7. `packageMsi packageExe`（**best-effort**，失败仅告警不阻塞）
+8. 收集产物 + SHA256 → 上传 artifact `ParseHubStudioCompose-windows-x64`
 
 ### 关键环境变量
 
@@ -303,7 +320,7 @@ miuix 主题**不提供** `LocalTextStyle`，`Text()` 不写样式就会掉到 C
   - **瓦片与滚动（对齐 x-spider 的画廊）**：方形瓦片、**文件名只在悬停时浮在底部**（平时不占高度，一屏多放一行）、视频角标；**滚到接近底部自动加载下一页**（`derivedStateOf` 监听列表末尾，去掉「加载更多」按钮）。
   - **不再每次重扫**：根目录用「mtime 签名」判断是否需要重扫，启动时先用持久化快照（`gallery-cache.json`）铺界面 —— 早先每次进图库都要把所有根目录重扫一遍，大目录要卡好几秒。
   - **视频首帧可取消**：卡片进视口才排队生成，滚出视口协程被取消时立刻 `destroy()` 掉 ffmpeg（参考 x-spider 的 IntersectionObserver 做法），不再让它在后台白跑完。
-- **灯箱（统一查看器）**：远程媒体（解析结果 / 解析记录）与本地文件（图库）共用一套查看器，`ViewerItem` 区分来源。**两级解码**：2048 预览层先出画面，后台再解原尺寸叠上去（宽高比一致、切换无跳动），所以既没有打开延迟，放大后也是原图像素。顶栏显示 `序号 · 分辨率 · 大小/时间`；`1:1` 与百分比按**原图像素**换算（本地分辨率读文件头即得，不用等解码）；缩放上限统一为「显示比例 400%」（早先是固定 8× 乘数，每张图上限各不相同，出现 169% / 324% 那种怪值）。滚轮缩放 / 拖动平移（**限制在图片边界内**，拖不丢）/ 双击复位 / ← → 切换 / Esc 关闭，预取相邻图片（2048）。**本地视频只用 VLC 播放**（vlcj + `EmbeddedMediaPlayerComponent` 嵌进 Compose `SwingPanel`）—— 编解码覆盖最全（HEVC / .ts / MKV / AV1 都能放），需要本机安装 VLC（不随包分发）。**本机已装 VLC 3.0.24 并验证**（`VlcProbeTest`：libvlc 用 D3D11VA 硬解播放测试 mp4；`NativeDiscovery` 自动找安装位置，无需配置）。**内置 JavaFX 播放器已按反馈移除**（只能放 H.264/AAC，却白占约 35 MB native）；没装 VLC 时查看器给出「下载 VLC / 用系统播放器打开」。**打开查看器是同步构造、立即显示**：分辨率与视频首帧改成按当前项懒加载 —— 早先点开一个几百张的文件夹要等好几秒（逐个读文件头 + 抽首帧）。远程视频只显示首帧（需先保存到下载目录）。底部缩略图条可一键隐藏（「隐藏缩略图 / 显示缩略图」，持久化在 `ui-prefs.json`）。
+- **灯箱（统一查看器）**：远程媒体（解析结果 / 解析记录）与本地文件（图库）共用一套查看器，`ViewerItem` 区分来源。**两级解码**：2048 预览层先出画面，后台再解原尺寸叠上去（宽高比一致、切换无跳动），所以既没有打开延迟，放大后也是原图像素。顶栏显示 `序号 · 分辨率 · 大小/时间`；`1:1` 与百分比按**原图像素**换算（本地分辨率读文件头即得，不用等解码）；缩放上限统一为「显示比例 400%」（早先是固定 8× 乘数，每张图上限各不相同，出现 169% / 324% 那种怪值）。滚轮缩放 / 拖动平移（**限制在图片边界内**，拖不丢）/ 双击复位 / ← → 切换 / Esc 关闭，预取相邻图片（2048）。**拖动与双击在同一个 `awaitEachGesture` 循环里判定**：早先是两个独立 `pointerInput` 各挂一个检测器，单击判定结束后的 doubleTapTimeout（~300ms）内再按下会被 tap 检测器当成「第二击」立即触发双击缩放并吃掉事件，并行的拖拽检测器看到事件被消费就取消 —— 连续平移时频繁「拖不动、图反而自己缩放」。另外尺寸未知（本地文件还没读到文件头 / 预览层还没解码完）时 `clampOffset` **不做限制**（早先恒返回 `Offset(0,0)`，打开后头一两秒完全拖不动），参考尺寸变化后重新夹取边界。**本地视频只用 VLC 播放**（vlcj + `EmbeddedMediaPlayerComponent` 嵌进 Compose `SwingPanel`）—— 编解码覆盖最全（HEVC / .ts / MKV / AV1 都能放），需要本机安装 VLC（不随包分发）。**本机已装 VLC 3.0.24 并验证**（`VlcProbeTest`：libvlc 用 D3D11VA 硬解播放测试 mp4；`NativeDiscovery` 自动找安装位置，无需配置）。**内置 JavaFX 播放器已按反馈移除**（只能放 H.264/AAC，却白占约 35 MB native）；没装 VLC 时查看器给出「下载 VLC / 用系统播放器打开」。**打开查看器是同步构造、立即显示**：分辨率与视频首帧改成按当前项懒加载 —— 早先点开一个几百张的文件夹要等好几秒（逐个读文件头 + 抽首帧）。远程视频只显示首帧（需先保存到下载目录）。底部缩略图条可一键隐藏（「隐藏缩略图 / 显示缩略图」，持久化在 `ui-prefs.json`）。
 - **命名模板重名提醒**：文件夹模板不含 `{id}` 时给出警告（同一作者的不同作品会进同一目录，重名文件会被归档逻辑改名 `xxx_2`；开启元数据时 `metadata.json` → `metadata_2.json`），并提供「追加 {id} 到末尾」一键修复。
 - **解析记录**（原「历史记录」）：解析过的作品（含未下载的），两级折叠（平台 → 作者）+ 紧凑操作行（大图 / 看视频 · 更新信息 · 原帖 · 删除）；顶部「导出 CSV」把全部解析记录写到 `<下载目录>/parsehub-history.csv`（UTF-8 BOM，Excel 直接打开），每次解析成功也会自动追加一行 —— 比会被改名的 `metadata.json` 可靠。
 - **账户与代理**：按平台折叠（默认收起），折叠行显示平台名（headline1 17 Medium）+ 账户数 + 配置摘要，顶部有「全部展开 / 全部收起」，避免为了找平台一直下滑。
@@ -387,6 +404,11 @@ miuix 主题**不提供** `LocalTextStyle`，`Text()` 不写样式就会掉到 C
 - [x] 内置字体（MiSans 三个字重 + 本机 PingFang 优先；见 §7.4）
 - [ ] 已知现象：窗口最大化时点「打开目录」，资源管理器可能被应用窗口挡住 —— 代码里**没有**置顶逻辑（已 grep 确认无 `alwaysOnTop` / `TOPMOST` / `SetWindowPos`），待复现确认
 - [ ] ⚠️ 未验证：打包版（`createDistributable` / MSI）里 JavaFX native 能否正常解压 —— 若打包版视频播放失败，优先查这里（开发模式走 classpath，已可用）
+- [x] 修 `published_at` 数字/字符串兼容（抖音解析结果解码崩溃，见 §3；回归测试 `ModelDecodeTest`）
+- [x] 灯箱拖动/双击手势合并 + 尺寸未知时的平移限制修复（见 §7.6）
+- [x] sidecar stderr 常驻读取 + `sidecar.log` + 启动失败带真实原因（见 §2）
+- [x] 打包 DLL 固定 + `check_bundle.py` 齐全性/来源校验（见 §4）
+- [x] CI 补跑 Compose 单测（`gradlew test`，含 `published_at` 解码回归，见 §5）
 
 ---
 

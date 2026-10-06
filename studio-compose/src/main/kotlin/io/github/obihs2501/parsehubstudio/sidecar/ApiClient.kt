@@ -19,10 +19,22 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+/**
+ * 解码 sidecar 返回的 JSON（回归测试 [io.github.obihs2501.parsehubstudio.ModelDecodeTest] 用的是同一份配置）。
+ *
+ * - `ignoreUnknownKeys`：后端加字段不至于让界面整页解码失败；
+ * - `coerceInputValues`：`"width": null` 这类脏值退回默认值，而不是直接抛异常。
+ */
+internal val apiJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+    coerceInputValues = true
+}
+
 /** 调用 Python sidecar 的 HTTP 客户端（对应 28 个 /api 路由）。 */
 class ApiClient(private val sidecar: SidecarProcess) {
 
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json = apiJson
 
     private val client = HttpClient {
         install(ContentNegotiation) { json(json) }

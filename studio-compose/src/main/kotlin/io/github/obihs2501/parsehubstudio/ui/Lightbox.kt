@@ -5,8 +5,8 @@ import io.github.obihs2501.parsehubstudio.ui.AppFont
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -42,8 +43,10 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
@@ -196,8 +199,17 @@ fun LightboxOverlay(state: AppState) {
     // 缩放上限按「显示比例」算（400%），任何图片都保证能到 1:1，不再出现 169% / 324% 这种随图变化的怪上限
     val maxZoom = (4f / fitScale).coerceAtLeast(4f)
 
-    /** 平移限制：缩放后图片边缘不允许被拖进舞台内部（拖到边界就停）。 */
+    /**
+     * 平移限制：缩放后图片边缘不允许被拖进舞台内部（拖到边界就停）。
+     *
+     * 参考尺寸 / 舞台尺寸未知时（本地文件还没读到文件头、预览层还没解码完）
+     * **不做限制**：早先这里 maxX/maxY 都是 0，恒返回 Offset(0,0)，
+     * 表现为「刚打开的一两秒里怎么拖都不动」。
+     */
     fun clampOffset(candidate: Offset, scale: Float): Offset {
+        if (refSize.width <= 0f || refSize.height <= 0f || viewSize.width <= 0 || viewSize.height <= 0) {
+            return candidate
+        }
         val maxX = ((refSize.width * fitScale * scale - viewSize.width) / 2f).coerceAtLeast(0f)
         val maxY = ((refSize.height * fitScale * scale - viewSize.height) / 2f).coerceAtLeast(0f)
         return Offset(candidate.x.coerceIn(-maxX, maxX), candidate.y.coerceIn(-maxY, maxY))
@@ -207,6 +219,28 @@ fun LightboxOverlay(state: AppState) {
         zoom = target.coerceIn(0.2f, maxZoom)
         offset = clampOffset(offset, zoom)
     }
+
+    // 参考尺寸 / 舞台尺寸变化（原图解码完成、窗口缩放）后重新夹取边界，
+    // 否则可拖范围与缩放上限突变，画面会跳一下
+    LaunchedEffect(refSize, viewSize) { offset = clampOffset(offset, zoom) }
+
+    // 拖动 + 双击合并进同一个手势循环（见下面的 pointerInput）：
+    // 早先是两个独立 pointerInput 各挂一个检测器 —— 单击判定结束后的 doubleTapTimeout
+    // （~300ms）内再按下会被 tap 检测器当成「第二击」立即触发双击缩放并吃掉事件，
+    // 并行的拖拽检测器看到事件已被消费就取消，于是连续平移时频繁「拖不动、图反而自己缩放」。
+    // 手势里要读的状态用 rememberUpdatedState 取最新值；pointerInput 的 key 固定为 Unit，
+    // 避免重组时 lambda 实例变化触发 resetPointerInputHandler、取消正在进行的手势。
+    val onDragGesture = rememberUpdatedState<(Offset) -> Unit>({ drag ->
+        offset = clampOffset(offset + drag, zoom)
+    })
+    val onDoubleTapGesture = rememberUpdatedState<() -> Unit>({
+        if (zoom > 1.001f) {
+            zoom = 1f
+            offset = Offset.Zero
+        } else {
+            applyZoom(2f)
+        }
+    })
 
     val scrimInteraction = remember { MutableInteractionSource() }
 
@@ -279,21 +313,54 @@ fun LightboxOverlay(state: AppState) {
                                 val delta = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
                                 if (delta != 0f) applyZoom(zoom * if (delta < 0) 1.12f else 1f / 1.12f)
                             }
-                            .pointerInput(item) {
-                                detectDragGestures { change, drag ->
-                                    change.consume()
-                                    offset = clampOffset(offset + drag, zoom)
-                                }
-                            }
-                            .pointerInput(item) {
-                                detectTapGestures(onDoubleTap = {
-                                    if (zoom > 1.001f) {
-                                        zoom = 1f
-                                        offset = Offset.Zero
-                                    } else {
-                                        applyZoom(2f)
+                            .pointerInput(Unit) {
+                                val slop = viewConfiguration.touchSlop
+                                val doubleTapTimeout = viewConfiguration.doubleTapTimeoutMillis
+                                var lastTapUpTime = 0L
+                                var lastTapPosition = Offset.Zero
+                                awaitEachGesture {
+                                    // requireUnconsumed（默认 true）：舞台上的按钮（上一个/下一个）会先消费
+                                    // 按下事件，这类点击不能计入双击判定
+                                    val down = awaitFirstDown()
+                                    // 与上一次「单击抬手」的时间/位置都够近，才算双击的第二击
+                                    val isSecondTap = down.uptimeMillis - lastTapUpTime <= doubleTapTimeout &&
+                                        (down.position - lastTapPosition).getDistance() <= slop * 2f
+                                    var dragTotal = Offset.Zero
+                                    var dragging = false
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (change.changedToUpIgnoreConsumed()) {
+                                            // 抬手时还没进入拖拽才算一次点击：第二击触发双击，
+                                            // 第一击只记下时间/位置（单击本身不做任何事）
+                                            if (!dragging) {
+                                                if (isSecondTap) {
+                                                    lastTapUpTime = 0L
+                                                    onDoubleTapGesture.value()
+                                                } else {
+                                                    lastTapUpTime = change.uptimeMillis
+                                                    lastTapPosition = change.position
+                                                }
+                                            }
+                                            break
+                                        }
+                                        if (!change.pressed) break
+                                        val delta = change.positionChange()
+                                        if (!dragging) {
+                                            dragTotal += delta
+                                            // 超过 touch slop 才判为拖拽：此后这次手势不可能再触发双击，
+                                            // 同时清掉上一次单击记录，避免「点 → 快滑 → 点」被误判成双击
+                                            if (dragTotal.getDistance() > slop) {
+                                                dragging = true
+                                                lastTapUpTime = 0L
+                                            }
+                                        }
+                                        if (dragging) {
+                                            change.consume()
+                                            onDragGesture.value(delta)
+                                        }
                                     }
-                                })
+                                }
                             },
                     ),
                 contentAlignment = Alignment.Center,

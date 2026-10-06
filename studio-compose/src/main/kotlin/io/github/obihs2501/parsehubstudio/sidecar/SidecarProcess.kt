@@ -7,6 +7,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.BufferedReader
 import java.io.File
+import java.io.FileOutputStream
+import java.time.LocalDateTime
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -38,6 +40,11 @@ class SidecarProcess(
     private var process: Process? = null
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** stderr 最后 40 行：启动失败时直接摆到错误信息里，不用再去翻日志。 */
+    private val stderrTail = ArrayDeque<String>()
+    private val stderrLock = Any()
+    private var stderrThread: Thread? = null
+
     var port: Int = 0
         private set
 
@@ -57,17 +64,72 @@ class SidecarProcess(
                 .redirectErrorStream(false)
                 .start()
             process = proc
+            // stderr 必须一直有人读：管道写满（约 64KB）子进程会永久阻塞，表现和
+            // 「启动超时」一模一样；崩溃原因（如 ImportError: DLL load failed）也只有这里能看到。
+            // 每次启动清空上一轮输出，避免重试失败时拿旧进程的报错去诊断。
+            synchronized(stderrLock) { stderrTail.clear() }
+            pumpStderr(proc)
 
             // 读取 stdout 直到 ready 事件（最多 120 秒）
             val reader = proc.inputStream.bufferedReader()
             val ready = readReady(reader, 120_000)
             if (ready == null) {
+                val exit = runCatching { proc.exitValue() }.getOrNull()
                 proc.destroyForcibly()
-                error("Python 服务启动失败或超时")
+                // 给 stderr 线程一点时间把管道里最后几行读完（进程已死，很快到 EOF）
+                runCatching { stderrThread?.join(500) }
+                error(
+                    buildString {
+                        append("Python 服务启动失败或超时")
+                        append(if (exit != null) "（进程已退出，退出码 $exit）" else "（120 秒内没有就绪）")
+                        val tail = stderrTailText()
+                        if (tail.isNotBlank()) append("\n\nsidecar 输出：\n").append(tail)
+                        append("\n\n完整日志：").append(logFile().absolutePath)
+                    },
+                )
             }
             port = ready
         }
     }
+
+    /** 后台线程持续读 stderr：追加到日志文件，并在内存里保留最后若干行。 */
+    private fun pumpStderr(proc: Process) {
+        stderrThread = Thread({
+            // 日志开不了也要把 stderr 读干（否则管道写满会卡死子进程）
+            val writer = runCatching {
+                val log = logFile()
+                log.parentFile?.mkdirs()
+                FileOutputStream(log, true).bufferedWriter()
+            }.getOrNull()
+            try {
+                writer?.write("\n===== ${LocalDateTime.now()} 启动 sidecar：${launch.label} =====\n")
+                proc.errorStream.bufferedReader().useLines { lines ->
+                    lines.forEach { line ->
+                        synchronized(stderrLock) {
+                            stderrTail.addLast(line)
+                            while (stderrTail.size > 40) stderrTail.removeFirst()
+                        }
+                        if (writer != null) {
+                            runCatching {
+                                writer.write(line)
+                                writer.newLine()
+                            }
+                        }
+                    }
+                }
+            } finally {
+                runCatching { writer?.close() }
+            }
+        }, "sidecar-stderr").apply { isDaemon = true; start() }
+    }
+
+    private fun stderrTailText(): String = synchronized(stderrLock) { stderrTail.joinToString("\n") }
+
+    /** 与界面偏好（ui-prefs.json）同一目录，方便用户/CI 直接收集。 */
+    private fun logFile(): File = File(
+        System.getenv("LOCALAPPDATA") ?: System.getProperty("java.io.tmpdir"),
+        "ParseHubStudio/sidecar.log",
+    )
 
     private fun readReady(reader: BufferedReader, timeoutMs: Long): Int? {
         val deadline = System.currentTimeMillis() + timeoutMs

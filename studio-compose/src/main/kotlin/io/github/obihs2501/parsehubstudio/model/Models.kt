@@ -1,7 +1,41 @@
 package io.github.obihs2501.parsehubstudio.model
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+
+/**
+ * 「字符串或数字」都接受，统一按字符串读取。
+ *
+ * 后端的 `published_at` 是 `int | str`：抖音给的是 create_time（epoch 秒，JSON 里是数字），
+ * 微博给的是 ISO 日期串。模型写死成 String 时，抖音解析结果会直接抛
+ * `Expected quotation mark '', but had '1' instead at path: $.published_at`，
+ * 整个解析工作台不可用 —— 这里与 Tauri 前端（naming.publication_date）一样兼容两种形态。
+ */
+object StringOrNumberSerializer : KSerializer<String> {
+
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("StringOrNumber", PrimitiveKind.STRING)
+
+    override fun deserialize(decoder: Decoder): String {
+        val jsonDecoder = decoder as? JsonDecoder ?: return decoder.decodeString()
+        return when (val element = jsonDecoder.decodeJsonElement()) {
+            is JsonNull -> ""
+            is JsonPrimitive -> element.content
+            else -> element.toString()
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: String) = encoder.encodeString(value)
+}
 
 /** 平台信息（/api/platforms、/api/config）。 */
 @Serializable
@@ -55,7 +89,10 @@ data class ParseResult(
     val name: String = "",
     val author: String = "",
     @SerialName("author_id") val authorId: String = "",
-    @SerialName("published_at") val publishedAt: String = "",
+    /** 抖音是 epoch 秒（数字），微博是 ISO 日期串 —— 两种都要能解，见 [StringOrNumberSerializer]。 */
+    @SerialName("published_at")
+    @Serializable(with = StringOrNumberSerializer::class)
+    val publishedAt: String = "",
     @SerialName("post_id") val postId: String = "",
     val media: List<Media> = emptyList(),
     @SerialName("media_count") val mediaCount: Int = 0,
@@ -87,7 +124,10 @@ data class Task(
     val author: String = "",
     @SerialName("post_id") val postId: String = "",
     @SerialName("raw_url") val rawUrl: String = "",
-    @SerialName("published_at") val publishedAt: String = "",
+    /** 同 [ParseResult.publishedAt]：数字 / 字符串都能解。 */
+    @SerialName("published_at")
+    @Serializable(with = StringOrNumberSerializer::class)
+    val publishedAt: String = "",
     @SerialName("created_at") val createdAt: Double = 0.0,
     @SerialName("finished_at") val finishedAt: Double? = null,
 )

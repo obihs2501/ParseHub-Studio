@@ -201,6 +201,12 @@ jobs:
           New-Item -ItemType Directory -Force C:\b | Out-Null
           .\gradlew.bat --no-daemon compileKotlin
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Run Compose unit tests (published_at decode regression)
+        env:
+          PARSEHUB_BUILD_DIR: C:\b
+        run: |
+          .\gradlew.bat --no-daemon test
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Create distributable (no WiX required)
         env:
           PARSEHUB_BUILD_DIR: C:\b
