@@ -156,6 +156,12 @@ def check_sources(entries):
 
 
 def main():
+    # CI（英文 Windows）的 stdout 是 cp1252：中文消息会 UnicodeEncodeError 而不是正常报错
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass
     root = Path(__file__).resolve().parents[1]
     build_dir = root / "build/parsehub_studio"
     # Analysis-00.toc 才有纯 Python 模块（PYMODULE）——禁止包检查必须用它；

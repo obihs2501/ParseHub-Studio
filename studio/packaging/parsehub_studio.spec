@@ -4,6 +4,14 @@ from pathlib import Path
 from PyInstaller.building.datastruct import TOC
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
+# CI（英文 Windows）的 stdout 是 cp1252：本文件里任何非 ASCII 输出都会
+# UnicodeEncodeError 把构建打挂（2026-10-06 的 CI 就死在这条上），统一改成 UTF-8。
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError, ValueError):
+        pass
+
 packaging_dir = Path(SPECPATH).resolve()
 studio_dir = packaging_dir.parent
 repo_dir = studio_dir.parent
@@ -35,7 +43,10 @@ search_dirs = [
 for group in RUNTIME_DLL_GROUPS:
     found = next((directory / name for name in group for directory in search_dirs if (directory / name).is_file()), None)
     if found is None:
-        print(f"警告：解释器目录里找不到 {group[0]} 等运行时 DLL —— 该布局可能静态链接，交由 check_bundle.py 校验")
+        print(
+            f"WARNING: runtime DLL {group[0]} (or its alternatives) not found under the interpreter "
+            "directories; this layout may link it statically - check_bundle.py will verify the bundle"
+        )
     else:
         binaries.append((str(found), "."))
 
