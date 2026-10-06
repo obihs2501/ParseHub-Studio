@@ -230,21 +230,19 @@ jobs:
           TMP: C:\t
         run: |
           New-Item -ItemType Directory -Force C:\t | Out-Null
-          .\gradlew.bat --no-daemon -Pcompose.desktop.verbose=true packageMsi packageExe
+          # verbose 开关走 gradle.properties（compose.desktop.verbose=true）：在 pwsh 里给
+          # gradlew.bat 传 -Pcompose.desktop.verbose=true 会被拆成「-Pcompose」+「.desktop.verbose=true」，
+          # Gradle 把后半段当 task 名 → BUILD FAILED（2026-10-06 的 run 因此被误报成 WiX 故障）。
+          .\gradlew.bat --no-daemon packageMsi packageExe --stacktrace
           if ($LASTEXITCODE) {
-            Write-Host '::group::jpackage logs'
+            Write-Host '::group::gradle / jpackage logs'
             Get-ChildItem -Recurse -Path C:\b\compose\logs -ErrorAction SilentlyContinue | ForEach-Object {
               Write-Host "----- $($_.FullName) -----"
               Get-Content -LiteralPath $_.FullName -ErrorAction SilentlyContinue
             }
             Write-Host '::endgroup::'
-            Write-Host 'Retrying packaging once after clearing WiX cache...'
-            Remove-Item -Recurse -Force C:\b\wix311 -ErrorAction SilentlyContinue
-            .\gradlew.bat --no-daemon -Pcompose.desktop.verbose=true packageMsi packageExe
-            if ($LASTEXITCODE) {
-              Write-Host '::warning::MSI/EXE packaging failed (WiX); portable build is still published.'
-              exit 0
-            }
+            Write-Host '::warning::Gradle 打包任务失败 —— 若上面出现 jpackage/light.exe 的输出，那是 WiX 问题；只有 "Task ... not found" 之类则是 Gradle 参数问题。不再自动重试（重试只是把同一个错误跑两遍）。'
+            exit 0
           }
       - name: Collect Compose release files and checksums
         run: |
@@ -282,6 +280,9 @@ jobs:
           $found = $false
           Get-ChildItem C:\t -Directory -Filter 'jdk.jpackage*' -ErrorAction SilentlyContinue | ForEach-Object {
             Get-ChildItem $_.FullName -Recurse -Include *.wxs,*.wxi,*.wxl,*.wxf -ErrorAction SilentlyContinue | ForEach-Object {
+              # 只看会绑定进 MSI 的源文件：-cultures:en-us 只绑定 en 的本地化，
+              # MsiInstallerStrings_{de,ja,zh_CN}.wxl 里的非 ASCII 属正常（不参与绑定）
+              if ($_.Name -match '_de\.wxl$|_ja\.wxl$|_zh_CN\.wxl$') { return }
               $hits = Select-String -Path $_.FullName -Pattern '[^\x00-\x7F]' -ErrorAction SilentlyContinue
               if ($hits) {
                 $found = $true

@@ -255,6 +255,28 @@ java.io.IOException: Command [light.exe, -nologo, -spdb, -ext, WixUtilExtension,
   `compose-build-diagnostics` artifact（早先那步上传的是 `studio-compose/build/reports/**`，
   而 CI 上 build 目录是 `C:\b`，永远是空的）。
 
+### 本地复现（不用等 CI）
+
+CI 与本机的差别只在 locale：本机 zh-CN → 936 能过，en-US → 1252 才报 311。把 jpackage 的
+默认 locale 改成 en-US 并配 `--temp` 保留 WiX 源文件，就能在本机复现（2026-10-06 实测）：
+
+```powershell
+$env:JAVA_TOOL_OPTIONS = "-Duser.language=en -Duser.country=US"   # 模拟 CI 的 en-US
+$env:PATH = "C:\b\wix311;$env:PATH"                               # Compose 插件下载的 WiX 3.11
+& "C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot\bin\jpackage.exe" `
+  --type msi --app-image C:\b\compose\binaries\main\app\ParseHubStudio `
+  --name ParseHubStudio --app-version 0.6.0 `
+  --description "ParseHub 可视化桌面应用：…" `
+  --vendor obihs2501 --win-menu --win-shortcut --win-dir-chooser --win-per-user-install `
+  --win-upgrade-uuid 8c1f2a44-9d3b-4e77-8a11-6f0e2b9c4d31 `
+  --dest C:\t\jp-out --temp C:\t\jp-temp --verbose
+```
+
+- 中文描述 + `-cultures:en-us` → `main.wxs(36)`、`main.wxs(82) : error LGHT0311 … code page '1252'`，
+  `light.exe` 退出 311（与 CI 日志完全一致）；
+- ASCII 描述 + 同样 en-us → 构建成功；
+- `--temp` 指定的目录 jpackage 不会删，`.wxs` 留在 `C:\t\jp-temp\config\`，可以直接 grep 非 ASCII。
+
 ### 仍然可选的长期方案
 
 - 升级 jpackage / WiX 4+，或换 Inno Setup（app-image → setup.exe）；
