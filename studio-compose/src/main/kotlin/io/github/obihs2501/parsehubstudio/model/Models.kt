@@ -90,10 +90,15 @@ data class MediaVariant(
     val gear: String = "",
     val codec: String = "",
 ) {
+    /** 短边像素：竖屏视频（2160×3840）也叫 2160P，与抖音自己的档位命名一致。 */
+    val shortSide: Int
+        get() = listOf(width, height).filter { it > 0 }.minOrNull() ?: 0
+
     /** 芯片文字，如「2160P · 13.7 MB」。 */
     val label: String
         get() = buildString {
-            append(if (height > 0) "${height}P" else "${width}×${height}")
+            val side = shortSide
+            append(if (side > 0) "${side}P" else "${width}×${height}")
             if (size > 0) append(" · ").append(String.format(java.util.Locale.US, "%.1f MB", size / 1024.0 / 1024.0))
         }
 }

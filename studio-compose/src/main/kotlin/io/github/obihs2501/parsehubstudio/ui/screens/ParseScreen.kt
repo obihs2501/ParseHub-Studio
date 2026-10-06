@@ -217,10 +217,10 @@ fun ParseScreen(state: AppState) {
                             )
                         }
                     }
-                    if (result.platform?.id == "douyin" && variants.first().height in 1..1079) {
+                    if (result.platform?.id == "douyin" && variants.first().shortSide in 1..1079) {
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "只拿到 ${variants.first().height}P：在「账户与代理」里配置抖音 Cookie 后重新解析，可拿 4K 原画",
+                            "只拿到 ${variants.first().shortSide}P：在「账户与代理」里配置抖音 Cookie 后重新解析，可拿 4K 原画",
                             style = MiuixTheme.textStyles.footnote2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )

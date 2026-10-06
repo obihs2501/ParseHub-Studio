@@ -64,6 +64,14 @@ kotlin {
     jvmToolchain(21)
 }
 
+// CI 上测试失败时把断言详情打进日志（否则只看到一行 FAILED，得去翻 HTML 报告）
+tasks.withType<Test> {
+    testLogging {
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        events("failed")
+    }
+}
+
 compose.desktop {
     application {
         mainClass = "io.github.obihs2501.parsehubstudio.MainKt"
