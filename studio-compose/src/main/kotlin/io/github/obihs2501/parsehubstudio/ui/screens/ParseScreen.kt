@@ -67,7 +67,7 @@ fun ParseScreen(state: AppState) {
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
             Spacer(Modifier.weight(1f))
-            TextButton("清空", onClick = { state.input = "" })
+            TextButton("清空", onClick = { state.clearParse() })
             Spacer(Modifier.width(6.dp))
             TextButton("清洗链接", onClick = { state.cleanInput() })
             Spacer(Modifier.width(6.dp))

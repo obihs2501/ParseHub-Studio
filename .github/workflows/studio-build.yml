@@ -230,7 +230,7 @@ jobs:
           TMP: C:\t
         run: |
           New-Item -ItemType Directory -Force C:\t | Out-Null
-          .\gradlew.bat --no-daemon packageMsi packageExe
+          .\gradlew.bat --no-daemon -Pcompose.desktop.verbose=true packageMsi packageExe
           if ($LASTEXITCODE) {
             Write-Host '::group::jpackage logs'
             Get-ChildItem -Recurse -Path C:\b\compose\logs -ErrorAction SilentlyContinue | ForEach-Object {
@@ -240,7 +240,7 @@ jobs:
             Write-Host '::endgroup::'
             Write-Host 'Retrying packaging once after clearing WiX cache...'
             Remove-Item -Recurse -Force C:\b\wix311 -ErrorAction SilentlyContinue
-            .\gradlew.bat --no-daemon packageMsi packageExe
+            .\gradlew.bat --no-daemon -Pcompose.desktop.verbose=true packageMsi packageExe
             if ($LASTEXITCODE) {
               Write-Host '::warning::MSI/EXE packaging failed (WiX); portable build is still published.'
               exit 0
@@ -268,14 +268,42 @@ jobs:
           path: studio-compose/release/*
           if-no-files-found: error
           retention-days: 30
+      - name: Collect Compose diagnostics (locale, WiX tools, jpackage WiX sources)
+        if: always()
+        run: |
+          Write-Host '----- runner locale / codepage -----'
+          Get-Culture | Format-List Name, DisplayName
+          Get-WinSystemLocale | Format-List Name, DisplayName
+          Write-Host "System ANSI codepage: $((Get-Culture).TextInfo.ANSICodePage)"
+          Write-Host '----- WiX tools -----'
+          cmd /c "where candle.exe 2>nul || echo candle.exe NOT on PATH"
+          cmd /c "where light.exe 2>nul || echo light.exe NOT on PATH"
+          Write-Host '----- non-ASCII strings in the WiX sources jpackage generated -----'
+          $found = $false
+          Get-ChildItem C:\t -Directory -Filter 'jdk.jpackage*' -ErrorAction SilentlyContinue | ForEach-Object {
+            Get-ChildItem $_.FullName -Recurse -Include *.wxs,*.wxi,*.wxl,*.wxf -ErrorAction SilentlyContinue | ForEach-Object {
+              $hits = Select-String -Path $_.FullName -Pattern '[^\x00-\x7F]' -ErrorAction SilentlyContinue
+              if ($hits) {
+                $found = $true
+                Write-Host "NON-ASCII in $($_.FullName)"
+                $hits | Select-Object -First 10 | ForEach-Object { Write-Host ("  line {0}: {1}" -f $_.LineNumber, $_.Line.Trim()) }
+              }
+            }
+          }
+          if (-not $found) { Write-Host 'no non-ASCII in WiX sources (or jpackage cleaned its temp dir)' }
+          New-Item -ItemType Directory -Force dist/diagnostics | Out-Null
+          Get-ChildItem C:\t -Directory -Filter 'jdk.jpackage*' -ErrorAction SilentlyContinue |
+            Copy-Item -Destination dist/diagnostics/ -Recurse -ErrorAction SilentlyContinue
+          Copy-Item -Recurse -Force C:\b\compose\logs dist/diagnostics/ -ErrorAction SilentlyContinue
+          exit 0
       - name: Upload Compose build diagnostics
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: compose-build-diagnostics
-          path: |
-            studio-compose/build/reports/**
-            studio-compose/**/build/reports/**
+          path: studio-compose/dist/diagnostics/**
+          if-no-files-found: warn
+          retention-days: 14
 
   release-compose:
     name: Publish Compose (miuix) release

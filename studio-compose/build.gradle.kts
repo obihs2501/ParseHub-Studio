@@ -71,7 +71,12 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "ParseHubStudio"
             packageVersion = "0.6.0"
-            description = "ParseHub 可视化桌面应用：解析社交平台内容并可视化预览、下载"
+            // MSI/EXE 元数据必须保持纯 ASCII：jpackage 的 description 会写进 MSI 的
+            // Summary Information，而 WiX 3 的 light.exe 按构建机 locale 选数据库代码页 ——
+            // CI 是 en-US → 1252，中文描述直接 LGHT0311 退出 311；本机 zh-CN → 936 只是把
+            // 中文悄悄替换成空格（本地 MSI 的 Subject 实测就是「ParseHub     :     」）。
+            // 中文说明放在 README 与应用界面里。
+            description = "ParseHub Studio: parse, preview and download media from social platforms"
             copyright = "ParseHub and ParseHub Studio contributors"
             vendor = "obihs2501"
 

@@ -252,6 +252,14 @@ class AppState(
 
     /* ------------------------------------------------------------ 解析与下载 */
 
+    /** 「清空」：输入框与下方解析结果一起清掉（批次面板有自己的取消/重试/清空，不动它）。 */
+    fun clearParse() {
+        input = ""
+        result = null
+        selectedBatchItem = null
+        error = null
+    }
+
     fun parse() {
         val text = input.trim()
         if (text.isEmpty()) { showToast("请先粘贴链接"); return }

@@ -2,7 +2,7 @@
 
 > 本文档面向接手排查的开发者/模型。当前分支：`feat/miuix-ui`。
 > 最后状态：**UI 全量对齐 miuix 规范（排版/配色），图片/灯箱/批次/Cookie/设置编辑/主题切换全部接通；开发模式不再需要先打包 sidecar。**
-> CI 侧：GitHub Actions 构建通过，产出免安装包（含 Python sidecar）；MSI/EXE 仍受 WiX `light.exe` 311 影响（见第 6 节）。
+> CI 侧：GitHub Actions 构建通过，产出免安装包（含 Python sidecar）；MSI/EXE 的 WiX `light.exe` 311 已定位并修复（元数据必须纯 ASCII，见第 6 节）。
 
 ---
 
@@ -205,7 +205,7 @@ maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
 
 ---
 
-## 6. ⚠️ 未解决问题：CI 上 MSI/EXE 打包失败（WiX light.exe 311）
+## 6. ✅ 已解决（2026-10-06）：CI 上 MSI/EXE 打包失败（WiX light.exe 311 = 代码页 1252 装不下中文）
 
 ### 现象
 
@@ -232,29 +232,34 @@ java.io.IOException: Command [light.exe, -nologo, -spdb, -ext, WixUtilExtension,
 4. 移除冗余依赖减小体积
 5. Windows Defender 排除
 
-### 根因分析（未最终确认）
+### 根因（2026-10-06 确认）
 
-路径长度已排除（短路径仍失败）。**最可能是 CI runner 环境差异**：
+**不是 JDK、不是 WiX 版本、不是缓存 —— 是 MSI 数据库代码页装不下中文。**
 
-- **JDK 版本差异**：CI 用 Temurin **21.0.12**，本地是 21.0.11。jpackage 的 WiX 集成在不同小版本可能有行为差异。
-- **WiX 3.11 在 GitHub runner 上的已知问题**：`light.exe` 311 是 WiX 的 IO 错误码，GitHub runner 上偶发（实时扫描/文件锁/权限）。
-- **cross-drive 操作**：`light.exe` 从 `C:\t` 读取、写 `C:\b`，本地也这样但成功。
+- `build.gradle.kts` 里 `description = "ParseHub 可视化桌面应用：…"`，jpackage 把它写进 MSI 的
+  **Summary Information（Subject）**；
+- WiX 3 的 `light.exe` 按构建机 locale 选数据库代码页：CI 是 en-US → **1252**，中文直接
+  `LGHT0311: A string was provided with characters that are not available in the specified
+  database code page '1252'`，jpackage 只把它转成「exit code 311」；
+- 本机 zh-CN → 936 能过，但**也是坏的**：本地 MSI 实测 `SummaryInfo Codepage = 1252`、
+  `Subject = "ParseHub     :     "`（中文被替换成空格）。
 
-### 建议的后续排查方向
+修复：`description` 改成纯 ASCII（中文说明留在 README 与界面里）。**MSI/EXE 的元数据必须保持 ASCII。**
 
-1. **锁定 JDK 版本**：CI 改用 `java-version: "21.0.11"`（或 `temurin` 指定精确 build），验证是否版本相关。
-2. **改用 WiX 4 / 换打包工具**：Compose 1.12 支持 `TargetFormat.Msi` 走 WiX 3；可考虑改用 **JPackage 的 app-image + 第三方安装器**，或直接只发免安装 zip。
-3. **试 `--win-console`/`--win-menu` 精简**，或减少 `appResourcesRootDir` 里的大文件（42 MB sidecar 进 cabinet）。
-4. **在 CI 上跑一次 `light.exe` 的详细日志**（`-v` 或在 `packageMsi.args.txt` 里加 verbose）。
-5. **考虑不用 MSI**：免安装 zip（已稳定产出）对多数用户足够；MSI 仅作为「有则更好」。
+### CI 上的诊断（2026-10-06 加）
 
-### 当前交付状态
+- 打包步骤加 `-Pcompose.desktop.verbose=true`（日志里能看到完整 jpackage 命令行）；
+- `TEMP/TMP=C:\t`，jpackage 的临时目录（含生成的 `main.wxs` / `*.wxl`）落在 `C:\t\jdk.jpackage*`；
+- 新增 always 运行的诊断步骤：打印 runner locale / ANSI 代码页、`where candle/light`、
+  扫描 WiX 源文件里的非 ASCII 字符串，并把 jpackage 临时目录 + `C:\b\compose\logs` 收进
+  `compose-build-diagnostics` artifact（早先那步上传的是 `studio-compose/build/reports/**`，
+  而 CI 上 build 目录是 `C:\b`，永远是空的）。
 
-**免安装包（`ParseHubStudioCompose-windows-x64-portable.zip`）是可靠产出**，包含：
-- `ParseHubStudio.exe`（jpackage 启动器）
-- `app/`（jar + skiko + sidecar + coil/ktor 依赖）
-- `runtime/`（JBR）
-- `app/resources/parsehub-sidecar.exe`（Python 后端）
+### 仍然可选的长期方案
+
+- 升级 jpackage / WiX 4+，或换 Inno Setup（app-image → setup.exe）；
+- 想保留中文 MSI 元数据：需要自定义 `--resource-dir` 让 MSI 走 zh-CN（代码页 936），
+  本仓库未采用（安装器界面会变中文单语，且 Compose DSL 不透传该参数）。
 
 ---
 
@@ -379,7 +384,8 @@ miuix 主题**不提供** `LocalTextStyle`，`Text()` 不写样式就会掉到 C
 
 ## 10. 未完成 / 待办
 
-- [ ] 解决 CI 上 WiX `light.exe` 311（见第 6 节）
+- [x] 解决 CI 上 WiX `light.exe` 311：MSI 元数据代码页 1252 装不下中文描述（见第 6 节）
+- [x] 解析工作台「清空」同时清掉下方解析结果（`AppState.clearParse()`）
 - [x] 图片加载：缩略图网格 + 封面（Coil 3，走 `/api/media` 代理，带 Bearer 鉴权）
 - [x] 灯箱/大图预览：缩放/平移/旋转/1:1/适应/切图/键盘/缩略图条/保存到下载目录
 - [x] 批次解析 UI：创建/轮询/取消/重试失败/选中查看/逐条下载
