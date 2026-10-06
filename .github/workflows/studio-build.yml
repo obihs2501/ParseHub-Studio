@@ -321,14 +321,14 @@ jobs:
           path: release
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: compose-v0.6.2-${{ github.run_number }}
+          tag_name: compose-v0.6.3-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: ParseHub Studio (Compose/miuix) 0.6.2 · Build ${{ github.run_number }}
+          name: ParseHub Studio (Compose/miuix) 0.6.3 · Build ${{ github.run_number }}
           prerelease: true
           body: |
             Windows 10/11 x64 · Compose Multiplatform + miuix 前端（`studio-compose/`），独立安装包。
 
-            - 安装包：`ParseHubStudio-0.6.2.msi`（推荐）或 `ParseHubStudio-0.6.2.exe`。
+            - 安装包：`ParseHubStudio-0.6.3.msi`（推荐）或 `ParseHubStudio-0.6.3.exe`。
               升级 UUID 固定 + 版本号更高，可直接覆盖安装本系列的旧版本；
               如果装过旧 Tauri 版（0.4.x），建议先在「应用和功能」里卸载一次再装这个。
             - 抖音解析可选画质：解析结果里给出全部档位（原画 4K / 1440P / 1080P / 720P…，带体积），
@@ -336,6 +336,8 @@ jobs:
               **4K 原画不再需要 cookie**：接口只给低清档时会自动用系统 Edge/Chrome 抓一次
               discover 页补上高清档（无 cookie、无登录、用临时 profile，十来秒）；
               抓取失败或本机没装 Edge/Chrome 时退回低清档，配置抖音 Cookie 也仍可拿高清档。
+            - 修 0.6.2 的「解析很久然后失败」：客户端请求超时从引擎默认的 15 秒显式放宽到 180 秒，
+              同时高清档抓取提速（屏蔽图片加载，实测 12.8 秒 → 9.0 秒）。
             - 应用内播放视频需要本机安装 VLC（HEVC / .ts 等由 VLC 解码）；未安装时会提示并可用系统播放器打开。
             - 内置 MiSans 字体（Regular / Medium / Demibold）；本机装有 PingFang SC 时优先使用 PingFang。
             - 首次运行自动启动随包的 Python sidecar，无需安装 Python。

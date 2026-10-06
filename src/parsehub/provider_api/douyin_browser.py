@@ -56,11 +56,9 @@ DISCOVER_URL = "https://www.douyin.com/discover?modal_id={}"
 # 档位 JSON 在 HTML 里的 URL 编码标记（``{"uri"``），实测 24 个标记 / 36 个 gearName。
 GEAR_MARKER = "%7B%22uri%22"
 
-# 实测 dump 耗时 8~14.2 秒且有波动，超时给 3 倍余量；批次解析整体 180 秒上限
-# （studio/src/parsehub_studio/batches.py 的 wait_for），两段 dump 不能吃掉太多预算。
+# 实测 dump 耗时 9~13 秒且有波动（屏蔽图片后 12.8s → 9.0s），超时给 4 倍余量；
+# 批次解析整体 180 秒上限（studio/src/parsehub_studio/batches.py 的 wait_for）。
 DUMP_TIMEOUT = 45
-VIRTUAL_TIME_TIMEOUT = 45
-VIRTUAL_TIME_BUDGET = 15000
 
 # 无头浏览器内存和临时 profile 都不小，而批量下载是逐条 create_task、没有并发上限，
 # 必须在这里压住并发（按事件循环计数）。
@@ -286,14 +284,7 @@ def merge_gears(video_data: dict, gears: list[dict]) -> int:
     return added
 
 
-def _build_command(
-    browser: str,
-    url: str,
-    profile_dir: str,
-    *,
-    proxy: str | None = None,
-    virtual_time: bool = False,
-) -> list[str]:
+def _build_command(browser: str, url: str, profile_dir: str, *, proxy: str | None = None) -> list[str]:
     command = [
         browser,
         "--headless=new",
@@ -303,14 +294,14 @@ def _build_command(
         "--disable-extensions",
         "--disable-gpu",
         "--mute-audio",
+        # 档位数据在 SSR HTML 里，图片只会拖慢 dump（实测 12.8s → 9.0s）。
+        "--blink-settings=imagesEnabled=false",
         f"--user-data-dir={profile_dir}",
         f"--user-agent={BROWSER_UA}",
         f"--window-size={WINDOW_SIZE}",
     ]
     if proxy:
         command.append(f"--proxy-server={proxy}")
-    if virtual_time:
-        command.append(f"--virtual-time-budget={VIRTUAL_TIME_BUDGET}")
     command.extend(["--dump-dom", url])
     return command
 
@@ -340,26 +331,19 @@ def _cleanup_stale_profiles() -> None:
             continue
 
 
-async def _dump_dom(
-    browser: str,
-    aweme_id: str,
-    *,
-    proxy: str | None = None,
-    virtual_time: bool = False,
-) -> str:
+async def _dump_dom(browser: str, aweme_id: str, *, proxy: str | None = None) -> str:
     """``--dump-dom`` 跑一次浏览器，返回页面 HTML；失败返回空串。"""
     url = DISCOVER_URL.format(aweme_id)
-    timeout = VIRTUAL_TIME_TIMEOUT if virtual_time else DUMP_TIMEOUT
     async with _dump_semaphore():
         _cleanup_stale_profiles()
         profile_dir = tempfile.mkdtemp(prefix=PROFILE_PREFIX)
-        command = _build_command(browser, url, profile_dir, proxy=proxy, virtual_time=virtual_time)
+        command = _build_command(browser, url, profile_dir, proxy=proxy)
 
         def run() -> subprocess.CompletedProcess:
             return subprocess.run(  # noqa: S603
                 command,
                 capture_output=True,
-                timeout=timeout,
+                timeout=DUMP_TIMEOUT,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
             )
 
@@ -375,17 +359,13 @@ async def _dump_dom(
 
 
 async def fetch_discover_gears(browser: str, aweme_id: str, *, proxy: str | None = None) -> list[dict]:
-    """抓 discover 页并返回档位；首次没抠到档位时再用 ``--virtual-time-budget`` 重试一次。
+    """抓一次 discover 页并返回档位；失败/没档位返回空列表（调用方静默降级）。
 
-    重试只针对「页面拿到了但没有档位」（渲染太慢/风控）—— 第一次就是空结果（超时、崩溃）
-    时不重试，避免把两段超时叠加进批次的 180 秒预算。
+    只跑一次 dump（约 9 秒）：实测 ``--virtual-time-budget`` 重试更慢（30 秒以上）且档位
+    结果相同，重试只会把超时预算叠进批次的 180 秒上限里。
     """
     html = await _dump_dom(browser, aweme_id, proxy=proxy)
-    gears = extract_discover_gears(html) if html else []
-    if gears or not html:
-        return gears
-    retried = await _dump_dom(browser, aweme_id, proxy=proxy, virtual_time=True)
-    return extract_discover_gears(retried) if retried else []
+    return extract_discover_gears(html) if html else []
 
 
 _gear_cache: dict[str, tuple[float, list[dict]]] = {}

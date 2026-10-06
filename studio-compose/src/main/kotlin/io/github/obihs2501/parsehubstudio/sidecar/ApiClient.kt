@@ -3,6 +3,7 @@ package io.github.obihs2501.parsehubstudio.sidecar
 import io.github.obihs2501.parsehubstudio.model.*
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -38,6 +39,14 @@ class ApiClient(private val sidecar: SidecarProcess) {
 
     private val client = HttpClient {
         install(ContentNegotiation) { json(json) }
+        // CIO 引擎默认请求超时只有 15 秒：抖音「接口只给低清档」时会自动用系统浏览器
+        // 补高清档，单次解析要 20~30 秒（最坏情况移动端重试 + 两段 dump 约 2 分钟）。
+        // 不显式放宽的话界面会直接报「Request timeout has expired」。
+        install(HttpTimeout) {
+            requestTimeoutMillis = 180_000
+            socketTimeoutMillis = 180_000
+            connectTimeoutMillis = 15_000
+        }
     }
 
     private fun io.ktor.client.request.HttpRequestBuilder.auth() {

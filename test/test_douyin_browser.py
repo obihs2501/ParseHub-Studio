@@ -219,26 +219,19 @@ class EnhanceWithBrowserTests(unittest.TestCase):
         self.assertIn("--dump-dom", command)
         self.assertIn(f"https://www.douyin.com/discover?modal_id={AWEME_ID}", command)
         self.assertIn("--window-size=2560,1440", command)
+        self.assertIn("--blink-settings=imagesEnabled=false", command)
         self.assertIn("--proxy-server=http://127.0.0.1:7890", command)
         profile = next(arg for arg in command if arg.startswith("--user-data-dir=")).split("=", 1)[1]
         self.assertFalse(Path(profile).exists())
 
-    def test_retries_with_virtual_time_when_first_dump_has_no_gear(self):
-        html = _discover_html([_gear()])
-        payload = _payload()
+    def test_page_without_gears_is_not_retried(self):
         with (
             patch.object(douyin_browser, "find_browser", return_value="msedge.exe"),
-            patch.object(
-                douyin_browser.subprocess,
-                "run",
-                side_effect=[_completed("<html>no gears</html>"), _completed(html)],
-            ) as run,
+            patch.object(douyin_browser.subprocess, "run", return_value=_completed("<html>no gears</html>")) as run,
         ):
-            added = asyncio.run(enhance_with_browser(payload, RAW_URL))
-        self.assertEqual(added, 1)
-        self.assertEqual(run.call_count, 2)
-        self.assertNotIn("--virtual-time-budget=15000", run.call_args_list[0].args[0])
-        self.assertIn("--virtual-time-budget=15000", run.call_args_list[1].args[0])
+            added = asyncio.run(enhance_with_browser(_payload(), RAW_URL))
+        self.assertEqual(added, 0)
+        self.assertEqual(run.call_count, 1)
 
     def test_skips_when_interface_already_gave_high_tier(self):
         payload = _payload({"play_addr": {"url_list": ["https://x/4k.mp4"], "width": 2160, "height": 3840}})
@@ -277,7 +270,7 @@ class EnhanceWithBrowserTests(unittest.TestCase):
             patch.object(douyin_browser.subprocess, "run", return_value=failed) as run,
         ):
             self.assertEqual(asyncio.run(enhance_with_browser(_payload(), RAW_URL)), 0)
-        # 空结果（超时/崩溃）不重试，避免两段超时叠加撑爆批次 180 秒预算
+        # 只跑一次 dump，失败直接降级（不再重试）
         self.assertEqual(run.call_count, 1)
 
     def test_cache_reuses_gears_for_same_video(self):
