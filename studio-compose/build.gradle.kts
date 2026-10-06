@@ -8,8 +8,9 @@ plugins {
 }
 
 group = "io.github.obihs2501.parsehubstudio"
-// 0.6.0：高于旧版（Tauri 线 0.4.x 与 Compose 线 0.5.0），配合固定的 upgradeUuid 可直接覆盖安装
-version = "0.6.0"
+// 0.6.1：抖音画质可选 + 原画取流修复。每发新版都要抬版本号 —— 版本号不变时
+// MSI 会拒绝覆盖安装（用户得先卸载），0.6.0 就吃过这个亏。
+version = "0.6.1"
 
 // WiX light.exe 在 Windows 上对路径长度敏感（CI 上 D:\a\... 会触发 exit 311）。
 // 允许通过环境变量把 build 目录指到短路径。
@@ -70,7 +71,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "ParseHubStudio"
-            packageVersion = "0.6.0"
+            packageVersion = "0.6.1"
             // MSI/EXE 元数据必须保持纯 ASCII：jpackage 的 description 会写进 MSI 的
             // Summary Information，而 WiX 3 的 light.exe 按构建机 locale 选数据库代码页 ——
             // CI 是 en-US → 1252，中文描述直接 LGHT0311 退出 311；本机 zh-CN → 936 只是把

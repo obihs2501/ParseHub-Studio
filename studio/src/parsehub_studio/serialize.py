@@ -74,6 +74,8 @@ def media_to_dict(media: Any) -> dict[str, Any]:
     data["preview_url"] = preview_url(data["url"]) if kind in {"image", "livephoto", "ani"} else data.get("thumb_url")
     if not data.get("thumb_url"):
         data["thumb_url"] = None
+    if data.get("variants") is None:
+        data.pop("variants", None)  # 只有多档位的平台（抖音）才带这个字段
     return data
 
 

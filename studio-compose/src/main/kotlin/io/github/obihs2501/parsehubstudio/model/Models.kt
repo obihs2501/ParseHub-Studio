@@ -75,7 +75,28 @@ data class Media(
     val duration: Int = 0,
     val ext: String = "",
     @SerialName("video_url") val videoUrl: String? = null,
+    /** 可选码流（抖音等多档位平台，按清晰度从高到低；空表示只有一条流）。 */
+    val variants: List<MediaVariant> = emptyList(),
 )
+
+/** 一条可选码流（/api/parse 的 media[].variants）。 */
+@Serializable
+data class MediaVariant(
+    val url: String = "",
+    val width: Int = 0,
+    val height: Int = 0,
+    val size: Long = 0,
+    val bitrate: Int = 0,
+    val gear: String = "",
+    val codec: String = "",
+) {
+    /** 芯片文字，如「2160P · 13.7 MB」。 */
+    val label: String
+        get() = buildString {
+            append(if (height > 0) "${height}P" else "${width}×${height}")
+            if (size > 0) append(" · ").append(String.format(java.util.Locale.US, "%.1f MB", size / 1024.0 / 1024.0))
+        }
+}
 
 /** 解析结果（/api/parse、批次 item.result、任务 payload）。 */
 @Serializable

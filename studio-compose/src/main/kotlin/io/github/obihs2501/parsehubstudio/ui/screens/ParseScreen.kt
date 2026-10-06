@@ -4,6 +4,7 @@ import io.github.obihs2501.parsehubstudio.ui.AppFont
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -26,6 +27,7 @@ import io.github.obihs2501.parsehubstudio.ui.*
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.*
+import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -194,6 +196,36 @@ fun ParseScreen(state: AppState) {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                // 画质选择：抖音会给出多档码流（原画 4K / 1440P / 1080P / 720P…），按体积标注
+                val variants = result.media.firstOrNull()?.variants.orEmpty()
+                if (variants.size > 1) {
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "画质",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                        variants.forEachIndexed { index, variant ->
+                            QualityChip(
+                                label = variant.label,
+                                selected = index == state.selectedVariant,
+                                onClick = { state.selectedVariant = index },
+                            )
+                        }
+                    }
+                    if (result.platform?.id == "douyin" && variants.first().height in 1..1079) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "只拿到 ${variants.first().height}P：在「账户与代理」里配置抖音 Cookie 后重新解析，可拿 4K 原画",
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
                 Spacer(Modifier.height(14.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(onClick = { state.downloadCurrent() }, colors = ButtonDefaults.buttonColorsPrimary()) {
@@ -277,5 +309,27 @@ private fun BatchItemRow(state: AppState, item: BatchItem) {
             Spacer(Modifier.width(8.dp))
             TextButton("下载", onClick = { state.downloadUrl(item.url) })
         }
+    }
+}
+
+/** 画质芯片（抖音多档位选择用）。 */
+@Composable
+private fun QualityChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        Modifier
+            .squircleSurface(
+                if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.secondaryVariant,
+                10.dp,
+            )
+            .clickable(interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(
+            label,
+            style = MiuixTheme.textStyles.footnote2,
+            color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantActions,
+            maxLines = 1,
+        )
     }
 }

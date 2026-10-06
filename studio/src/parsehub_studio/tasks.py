@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import tempfile
 import time
 import uuid
@@ -99,6 +100,9 @@ def _pick_media(result: Any, index: int) -> Any:
 
 IMAGE_EXTS = {"jpg", "jpeg", "png", "webp", "gif", "bmp", "avif", "heic"}
 
+# 画质选择：前端的 ``quality`` 传 "vN" 表示用解析结果里的第 N 个码流（media.variants）
+VARIANT_PATTERN = re.compile(r"^v(\d+)$")
+
 
 def _guess_ext(url: str, fallback: str) -> str:
     suffix = Path(urlparse(url).path).suffix.lstrip(".").lower()
@@ -118,8 +122,29 @@ def _to_thumb(media: Any) -> Any:
     return replace(media, url=thumb, ext=ext)
 
 
+def _apply_variant(result: Any, index: int) -> Any:
+    """把媒体换成解析时收集到的第 index 个码流（前端的画质选择用 ``quality="vN"``）。"""
+    for item in _as_media_list(getattr(result, "media", None)):
+        variants = getattr(item, "variants", None) or []
+        if 0 <= index < len(variants):
+            variant = variants[index]
+            item.url = variant.get("url") or item.url
+            item.width = int(variant.get("width") or item.width)
+            item.height = int(variant.get("height") or item.height)
+            item.ext = "mp4"
+    return result
+
+
 def _apply_quality(result: Any, quality: str) -> Any:
-    """按下载规格改写解析结果；``thumb`` 表示只下载预览图。"""
+    """按下载规格改写解析结果。
+
+    - ``thumb``：只下载预览图；
+    - ``vN``：选第 N 个码流（抖音等多档位平台，见 ``media.variants``）；
+    - 其它（``origin`` 等）：用解析默认值，也就是最高画质。
+    """
+    variant = VARIANT_PATTERN.match(quality or "")
+    if variant:
+        return _apply_variant(result, int(variant.group(1)))
     if quality != "thumb":
         return result
     items = _as_media_list(getattr(result, "media", None))

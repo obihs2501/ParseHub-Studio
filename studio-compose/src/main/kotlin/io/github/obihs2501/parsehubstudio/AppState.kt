@@ -70,6 +70,8 @@ class AppState(
 
     var input by mutableStateOf("")
     var quality by mutableStateOf("origin")
+    /** 抖音等多档位平台的画质选择（下标进 media.variants，0 = 最清晰）。 */
+    var selectedVariant by mutableStateOf(0)
     var previewMode by mutableStateOf(true)
     var useSavedConfig by mutableStateOf(true)
 
@@ -270,6 +272,7 @@ class AppState(
                 .onSuccess {
                     result = it
                     selectedBatchItem = null
+                    selectedVariant = 0
                     refreshHistory()
                     appendParseCsv(it)
                 }
@@ -280,12 +283,18 @@ class AppState(
 
     private fun currentText(): String = input.trim().ifEmpty { result?.rawUrl.orEmpty() }
 
+    /** 有码流列表时用选中的那一档（"vN"），否则沿用设置里的下载规格（origin / thumb）。 */
+    private fun downloadQuality(): String {
+        val variants = result?.media?.firstOrNull()?.variants.orEmpty()
+        return if (variants.size > 1) "v${selectedVariant.coerceIn(0, variants.size - 1)}" else quality
+    }
+
     /** 下载当前作品（单个任务）。 */
     fun downloadCurrent() {
         val text = currentText()
         if (text.isEmpty()) { showToast("请先粘贴链接"); return }
         scope.launch {
-            runCatching { api.createTask(text, quality = quality) }
+            runCatching { api.createTask(text, quality = downloadQuality()) }
                 .onSuccess { showToast("已加入下载队列"); refreshTasks() }
                 .onFailure { showToast(it.message ?: "创建任务失败") }
         }
@@ -300,8 +309,10 @@ class AppState(
     fun downloadMedia(index: Int, sourceUrl: String? = null) {
         val text = sourceUrl?.takeIf { it.isNotBlank() } ?: currentText()
         if (text.isEmpty()) return
+        // 来自灯箱/历史（带了 sourceUrl）的下载不一定对应当前解析结果，别套用它的档位选择
+        val chosen = if (sourceUrl.isNullOrBlank()) downloadQuality() else quality
         scope.launch {
-            runCatching { api.createTask(text, mediaIndex = index, quality = quality) }
+            runCatching { api.createTask(text, mediaIndex = index, quality = chosen) }
                 .onSuccess { showToast("已加入下载队列"); refreshTasks() }
                 .onFailure { showToast(it.message ?: "创建任务失败") }
         }

@@ -65,11 +65,18 @@ class ParseResult(ABC):  # noqa: B024
 
     def to_dict(self) -> dict:
         """转换为字典"""
+
+        def media_dict(item) -> dict:
+            data = asdict(item)
+            if data.get("variants") is None:
+                data.pop("variants", None)  # 只有多档位平台（抖音）才填这个字段
+            return data
+
         media: list[dict] | dict | None = None
         if isinstance(self.media, Sequence):
-            media = [asdict(m) for m in self.media]
+            media = [media_dict(m) for m in self.media]
         elif self.media:
-            media = asdict(self.media)
+            media = media_dict(self.media)
 
         return {
             "platform": self.platform.id if self.platform else None,

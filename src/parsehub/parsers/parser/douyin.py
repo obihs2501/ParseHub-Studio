@@ -188,61 +188,75 @@ def _first_http_url(address: dict) -> str | None:
     return None
 
 
-def _p_play_addr(video_data: dict) -> tuple[str | None, int, int]:
-    play_addr = video_data.get("play_addr") or {}
-    url = _first_http_url(play_addr)
-    if not url:
-        return None, 0, 0
-    return url, play_addr.get("width", 0), play_addr.get("height", 0)
+def _stream_candidates(video_data: dict) -> list[dict]:
+    """收集全部可用码流（顶层 play_addr + bit_rate[] 档位），按清晰度从高到低排序。
 
+    不同接口给的档位差别很大：网页接口（需要 cookie）会带 2160P 之类的高清档；
+    移动端接口常常只有 720P/540P，而且它的顶层 play_addr 往往只是低清自适应预览
+    （实测某条视频是 576x1024 5.4MB，而 bit_rate[] 里明明有 720x1280 的档位）。
+    所以不再按接口类型挑来源，统一收集后按「分辨率面积 → 体积 → 码率」排序；
+    前端拿到的 ``variants`` 就是这份列表，可以自己选画质。
+    """
+    candidates: list[dict] = []
 
-def _p_bit_rates(video_data: dict, filter_bytevc1: bool = False) -> tuple[str | None, int, int]:
-    bit_rates: list = [item for item in (video_data.get("bit_rate") or []) if isinstance(item, dict)]
-    if filter_bytevc1:
-        bit_rates = list(filter(lambda i: i.get("is_bytevc1", 0) == 0, bit_rates))
-    bit_rates.sort(
-        key=lambda x: (
-            x.get("play_addr", {}).get("width", 0) * x.get("play_addr", {}).get("height", 0),
-            x.get("play_addr", {}).get("data_size", 0),
-            x.get("bit_rate", 0),
-        ),
+    def add(address: dict | None, gear: str = "", bytevc1: int | None = None, bitrate: int = 0) -> None:
+        if not isinstance(address, dict):
+            return
+        url = _first_http_url(address)
+        if not url:
+            return
+        candidates.append({
+            "url": remove_video_watermark(url),
+            "width": int(address.get("width") or 0),
+            "height": int(address.get("height") or 0),
+            "size": int(address.get("data_size") or 0),
+            "bitrate": int(bitrate or 0),
+            "gear": gear,
+            "codec": "h265" if bytevc1 else "h264",
+        })
+
+    add(video_data.get("play_addr"), gear="play_addr")
+    for item in video_data.get("bit_rate") or []:
+        if isinstance(item, dict):
+            add(
+                item.get("play_addr"),
+                gear=str(item.get("gear_name") or ""),
+                bytevc1=item.get("is_bytevc1"),
+                bitrate=item.get("bit_rate") or 0,
+            )
+
+    unique: dict[str, dict] = {}
+    for item in candidates:
+        unique.setdefault(item["url"], item)
+    return sorted(
+        unique.values(),
+        key=lambda i: (i["width"] * i["height"], i["size"], i["bitrate"]),
         reverse=True,
     )
-    for best_quality in bit_rates:
-        play_addr = best_quality.get("play_addr", {})
-        url = _first_http_url(play_addr)
-        if url:
-            return url, play_addr.get("width", 0), play_addr.get("height", 0)
-    return None, 0, 0
 
 
 def parse_video_info(video_data: dict) -> dict:
-    # app 接口会带 is_bytevc1，其顶层 play_addr 就是原画母带；bit_rate[] 是抖音转码档位
-    # （常为 bytevc1/bytevc2，体积更小、画质更差）。web 接口没有该字段，顶层 play_addr 只是
-    # 低清自适应预览，真正的档位在 bit_rate[] 里。因此按接口类型区分取流来源。
-    is_app = video_data.get("is_bytevc1", None) is not None
-    if is_app:
-        url, width, height = _p_play_addr(video_data)
-        if not url:
-            url, width, height = _p_bit_rates(video_data, True)
-    else:
-        url, width, height = _p_bit_rates(video_data)
-        if not url:
-            url, width, height = _p_play_addr(video_data)
-    if not url:
+    """选一条最清晰的流，并把全部档位一起返回（``variants``，供前端选画质）。
+
+    不再按接口类型区分来源、也不过滤 bytevc1/H265：抖音的 4K 原档本身就是 H265
+    （网页接口 2160x3840 档），过滤掉它等于永远拿不到原画。播放由 VLC 负责（HEVC 支持完整）。
+    """
+    candidates = _stream_candidates(video_data)
+    if not candidates:
         raise ParseError("抖音未返回可用视频地址")
-    video_url = remove_video_watermark(url)
+    best = candidates[0]
 
     cover = video_data.get("cover", {})
     thumb_url_list = cover.get("url_list", [])
     thumb_url = thumb_url_list[-1] if thumb_url_list else None
 
     return {
-        "video_url": video_url,
+        "video_url": best["url"],
         "thumb_url": thumb_url,
         "duration": round((video_data.get("duration") or 0) / 1000),
-        "width": width,
-        "height": height,
+        "width": best["width"],
+        "height": best["height"],
+        "variants": candidates,
     }
 
 
@@ -376,6 +390,7 @@ class DouyinApiResult:
                 width=video_info["width"],
                 height=video_info["height"],
                 duration=video_info["duration"],
+                variants=video_info.get("variants"),
             ),
             desc=desc,
         )

@@ -85,13 +85,30 @@ class ModelDecodeTest {
 
     /** 任务列表（/api/tasks）里的 published_at 同样是数字（tasks.py 直接透传解析 payload）。 */
     @Test
-    fun taskPublishedAtNumberDecodes() {
-        val payload = """
+    fun taskPublishedAtNumberDecodes() {        val payload = """
             {"id": "t1", "text": "https://v.douyin.com/Xj7PiTrMa6o/", "status": "running",
              "progress": 0.5, "current": 3, "total": 6, "unit": "个", "published_at": 1790257398,
              "created_at": 1790257400.5, "finished_at": null}
         """.trimIndent()
         val task = json.decodeFromString(Task.serializer(), payload)
         assertEquals("1790257398", task.publishedAt)
+    }
+
+    /** 抖音的 media[].variants（可选画质档位）要能解出芯片标签。 */
+    @Test
+    fun mediaVariantsDecodeWithLabels() {
+        val payload = douyinPayload.replace(
+            "\"video_url\": null}",
+            "\"video_url\": null, \"variants\": [" +
+                "{\"url\": \"https://example.com/2160p.mp4\", \"width\": 2160, \"height\": 3840," +
+                " \"size\": 14403026, \"bitrate\": 4743, \"gear\": \"adapt_lowest_4_1\", \"codec\": \"h265\"}," +
+                "{\"url\": \"https://example.com/1080p.mp4\", \"width\": 1080, \"height\": 1920," +
+                " \"size\": 7071979, \"bitrate\": 2328, \"gear\": \"normal_1080_0\", \"codec\": \"h264\"}]}",
+        )
+        val variants = json.decodeFromString(ParseResult.serializer(), payload).media.first().variants
+        assertEquals(2, variants.size)
+        assertEquals("2160P · 13.7 MB", variants.first().label)
+        assertEquals("h265", variants.first().codec)
+        assertEquals("1080P · 6.7 MB", variants.last().label)
     }
 }

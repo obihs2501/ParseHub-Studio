@@ -154,7 +154,7 @@ conda 把运行时 DLL 放在 `<prefix>/Library/bin`，PyInstaller 不会自动�
 ```
 
 - **只发独立安装包，不发便携版**（用户要求）：CI 的 compose 任务只把 `*.msi` / `*.exe` 收进 `release/`。
-- **覆盖升级**：`upgradeUuid` 固定为 `8c1f2a44-9d3b-4e77-8a11-6f0e2b9c4d31`，且 `packageVersion` 抬到 0.6.0（高于旧 Tauri 线 0.4.x 与 Compose 线 0.5.0）—— 同一系列可直接覆盖安装；装过旧 Tauri 版的建议先卸载一次（两套安装器身份不同）。
+- **覆盖升级**：`upgradeUuid` 固定为 `8c1f2a44-9d3b-4e77-8a11-6f0e2b9c4d31`，`packageVersion` 每次发版都要往上抬（0.6.0 → 0.6.1，**版本号不变时 MSI 拒绝覆盖安装**，用户得先卸载）；同一系列可直接覆盖安装；装过旧 Tauri 版的建议先卸载一次（两套安装器身份不同）。CI 的 release tag 也要跟着改（`compose-v0.6.1-<run>`）。
 - **自动发布**：推送 `feat/**` 后由 `release-compose` 任务发布到 GitHub Release（tag `compose-v0.6.0-<run>`，预发布）。
 
 **`build` 目录可用环境变量覆盖**（用于规避 WiX 长路径问题）：
@@ -338,6 +338,7 @@ miuix 主题**不提供** `LocalTextStyle`，`Text()` 不写样式就会掉到 C
 ### 7.6 交互约定（按使用反馈调整）
 
 - **解析工作台**：解析选项收进可折叠分组（默认收起），一级界面只留输入框 + 结果 + 批次面板。
+- **抖音画质可选（0.6.1）**：解析结果里给出全部码流档位（`media[].variants`：分辨率 / 体积 / 码率 / 编码，按清晰度从高到低），结果卡片上用芯片选（`vN` 下标），下载时 `quality` 传 `"vN"`，后端 `_apply_quality` 换成对应档。取流策略也改了：**不再按接口类型区分来源、也不再过滤 bytevc1/H265**（4K 原档本身就是 H265），统一按「分辨率面积 → 体积 → 码率」取最高档 —— 移动端接口的顶层 `play_addr` 常常只是低清预览（实测 576x1024 5.4MB，而 `bit_rate[]` 里有 720x1280 的档），以前会优先它。**4K 原画需要配置抖音 Cookie**：只有网页接口返回高清档（2160x3840 / 14.4MB / H265），未配置时只有 720P 及以下，UI 会提示去「账户与代理」配置。
 - **可折叠分组头**：统一带底色（`secondaryVariant` + `squircleSurface` 12dp）+ `primary` 色箭头，和普通标题行明显区分；展开/收起状态看箭头方向与下方内容。
 - **本地图库**：支持**多个根目录** —— 默认下载目录 + 用户添加的文件夹（持久化在 `%LOCALAPPDATA%/ParseHubStudio/gallery-roots.json`，不走后端设置接口，避免污染 settings.json）；左侧按根目录分组（可折叠、额外目录可移除），右侧内容区（面包屑 + 上一级 / 重新扫描 / 打开目录）；工具栏两行：筛选（全部 / 图片 / 视频）+ 文件名搜索 + 「显示设置」（展开后是排序、升降序、列数 2–10、裁剪 / 完整、视频首帧）；网格分页 120，子文件夹以卡片展示。视频首帧用本机 ffmpeg 抽帧缓存到 `%LOCALAPPDATA%/ParseHubStudio/videothumbs`。新下载仍然只写默认下载目录。
   - **栏宽可拖动**：左侧导航栏与图库文件夹栏都有 10dp 拖动把手（悬停变手型 + 高亮），宽度持久化在 `%LOCALAPPDATA%/ParseHubStudio/ui-prefs.json`（拖动过程不写盘，松手才存）。
@@ -437,6 +438,8 @@ miuix 主题**不提供** `LocalTextStyle`，`Text()` 不写样式就会掉到 C
 - [x] sidecar stderr 常驻读取 + `sidecar.log` + 启动失败带真实原因（见 §2）
 - [x] 打包 DLL 固定 + `check_bundle.py` 齐全性/来源校验（见 §4）
 - [x] CI 补跑 Compose 单测（`gradlew test`，含 `published_at` 解码回归，见 §5）
+- [x] 抖音画质可选（`media[].variants` + 画质芯片 + `quality="vN"`）；取流不再过滤 H265、不再无条件优先低清 `play_addr`（见 §7.6）
+- [x] 版本号规范：每次发版抬 `version` / `packageVersion`（本次 0.6.1），否则 MSI 拒绝覆盖安装
 
 ---
 

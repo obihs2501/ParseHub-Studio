@@ -33,6 +33,8 @@ class VideoRef(MediaRef):
 
     ext: str = "mp4"
     duration: int = 0
+    variants: list[dict] | None = None
+    """全部可用码流（按清晰度从高到低），供前端做画质选择；目前抖音会填。"""
 
 
 @dataclass(kw_only=True)
