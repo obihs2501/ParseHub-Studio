@@ -184,6 +184,17 @@ class DownloadQualitySelectionTests(unittest.TestCase):
     def test_out_of_range_variant_keeps_default(self):
         self.assertEqual(_apply_quality(self._result(), "v9").media.url, "https://example.com/best.mp4")
 
+    def test_variant_carries_failover_urls_to_the_downloader(self):
+        # 抖音原画档有多条 CDN 线路，选档时要一起带下去（下载失败时切换）
+        result = self._result()
+        result.media.variants[0]["urls"] = ["https://example.com/2160p.mp4", "https://cdn2.example.com/2160p.mp4"]
+        applied = _apply_quality(result, "v0")
+        self.assertEqual(applied.media.url, "https://example.com/2160p.mp4")
+        self.assertEqual(applied.media.urls, ["https://example.com/2160p.mp4", "https://cdn2.example.com/2160p.mp4"])
+
+    def test_variant_without_urls_leaves_none(self):
+        self.assertIsNone(_apply_quality(self._result(), "v0").media.urls)
+
 
 if __name__ == "__main__":
     unittest.main()

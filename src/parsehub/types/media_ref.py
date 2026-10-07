@@ -17,6 +17,8 @@ class MediaRef:
     thumb_url: str | None = None
     width: int = 0
     height: int = 0
+    urls: list[str] | None = None
+    """同一份内容的其它落点（抖音原画档有多条 CDN 线路），下载失败时按顺序切换。"""
 
 
 @dataclass(kw_only=True)

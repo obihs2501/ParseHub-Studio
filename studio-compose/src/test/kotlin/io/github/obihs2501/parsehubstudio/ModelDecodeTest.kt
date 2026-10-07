@@ -6,6 +6,8 @@ import io.github.obihs2501.parsehubstudio.sidecar.apiJson
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * 回归测试：`published_at` 在后端是 `int | str` —— 抖音给 create_time（epoch 秒，JSON 里是数字），
@@ -110,5 +112,25 @@ class ModelDecodeTest {
         assertEquals("2160P · 13.7 MB", variants.first().label)
         assertEquals("h265", variants.first().codec)
         assertEquals("1080P · 6.7 MB", variants.last().label)
+    }
+
+    /** 抖音「真·原画」档位（origin=true）：芯片显示档位名，上 GB 的体积用 GB 表示。 */
+    @Test
+    fun originVariantDecodesWithGearLabel() {
+        val payload = douyinPayload.replace(
+            "\"video_url\": null}",
+            "\"video_url\": null, \"variants\": [" +
+                "{\"url\": \"https://v3-web.douyinvod.com/tos-cn-v-0015c000/master.mp4\"," +
+                " \"width\": 2160, \"height\": 3840, \"size\": 1610612736, \"bitrate\": 1006632," +
+                " \"gear\": \"原画\", \"codec\": \"h265\", \"origin\": true}," +
+                "{\"url\": \"https://example.com/2160p.mp4\", \"width\": 2160, \"height\": 3840," +
+                " \"size\": 14403026, \"bitrate\": 4743, \"gear\": \"adapt_lowest_4_1\", \"codec\": \"h265\"}]}",
+        )
+        val variants = json.decodeFromString(ParseResult.serializer(), payload).media.first().variants
+        assertEquals(2, variants.size)
+        assertTrue(variants.first().origin)
+        assertEquals("原画 · 1.50 GB", variants.first().label)
+        assertFalse(variants.last().origin)
+        assertEquals("2160P · 13.7 MB", variants.last().label)
     }
 }

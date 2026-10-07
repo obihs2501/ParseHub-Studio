@@ -272,7 +272,7 @@ class AppState(
                 .onSuccess {
                     result = it
                     selectedBatchItem = null
-                    selectedVariant = 0
+                    selectedVariant = defaultVariantIndex(it.media.firstOrNull()?.variants.orEmpty())
                     refreshHistory()
                     appendParseCsv(it)
                 }
@@ -282,6 +282,16 @@ class AppState(
     }
 
     private fun currentText(): String = input.trim().ifEmpty { result?.rawUrl.orEmpty() }
+
+    /**
+     * 默认选中的档位：跳过原画。
+     *
+     * 原画是未转码的原始档（可能几 GB），而「下载本作品」会直接把选中的档位发下去 ——
+     * 默认停在原画上等于让用户点一下「下载」就静默拉一份上 GB 的文件。原画仍是 0 号芯片，
+     * 想拿点一下就行。
+     */
+    private fun defaultVariantIndex(variants: List<MediaVariant>): Int =
+        variants.indexOfFirst { !it.origin }.takeIf { it >= 0 } ?: 0
 
     /** 有码流列表时用选中的那一档（"vN"），否则沿用设置里的下载规格（origin / thumb）。 */
     private fun downloadQuality(): String {

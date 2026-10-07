@@ -118,8 +118,8 @@ def _to_thumb(media: Any) -> Any:
         return media
     ext = _guess_ext(thumb, getattr(media, "ext", None) or "jpg")
     if isinstance(media, LivePhotoRef):
-        return replace(media, url=thumb, ext=ext, video_url=None)
-    return replace(media, url=thumb, ext=ext)
+        return replace(media, url=thumb, ext=ext, urls=None, video_url=None)
+    return replace(media, url=thumb, ext=ext, urls=None)
 
 
 def _apply_variant(result: Any, index: int) -> Any:
@@ -129,6 +129,8 @@ def _apply_variant(result: Any, index: int) -> Any:
         if 0 <= index < len(variants):
             variant = variants[index]
             item.url = variant.get("url") or item.url
+            # 原画档有多条 CDN 线路：一起交给下载器做故障切换（见 parsehub.utils.downloader）
+            item.urls = list(variant.get("urls") or []) or None
             item.width = int(variant.get("width") or item.width)
             item.height = int(variant.get("height") or item.height)
             item.ext = "mp4"

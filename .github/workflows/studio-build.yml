@@ -321,17 +321,24 @@ jobs:
           path: release
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: compose-v0.6.3-${{ github.run_number }}
+          tag_name: compose-v0.6.4-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: ParseHub Studio (Compose/miuix) 0.6.3 · Build ${{ github.run_number }}
-          prerelease: true
+          name: ParseHub Studio (Compose/miuix) 0.6.4 · Build ${{ github.run_number }}
+          prerelease: false
           body: |
             Windows 10/11 x64 · Compose Multiplatform + miuix 前端（`studio-compose/`），独立安装包。
 
-            - 安装包：`ParseHubStudio-0.6.3.msi`（推荐）或 `ParseHubStudio-0.6.3.exe`。
+            - 安装包：`ParseHubStudio-0.6.4.msi`（推荐）或 `ParseHubStudio-0.6.4.exe`。
               升级 UUID 固定 + 版本号更高，可直接覆盖安装本系列的旧版本；
               如果装过旧 Tauri 版（0.4.x），建议先在「应用和功能」里卸载一次再装这个。
-            - 抖音解析可选画质：解析结果里给出全部档位（原画 4K / 1440P / 1080P / 720P…，带体积），
+              安装对话框里可以指定安装目录（默认是 `%LOCALAPPDATA%\ParseHubStudio`）。
+            - 抖音**「真·原画」**：接口给的最高档只是「转码后最清晰的一档」，抖音另有一份未转码的
+              原始上传档（`ratio=default`），同一分辨率下体积可能差几十倍、几 GB 也常见。
+              解析结果里它会作为最高档排在最前，芯片显示「原画 · 1.50 GB」/「8K · 1.20 GB」。
+              **大文件断点续传**：原画动辄上 GB，下载中断（断连 / 取消 / 关掉应用）后重下会接着
+              已下完的部分继续，不再从 0 重来；原画档的多条 CDN 线路也会在失败时自动切换。
+              解析失败时原画会静默跳过（`PARSEHUB_DOUYIN_ORIGIN=0` 可关闭）。
+            - 抖音解析可选画质：解析结果里给出全部档位（原画 / 4K / 1440P / 1080P / 720P…，带体积），
               下载时用选中的那一档；原画档是 H265，不再被过滤掉。
               **4K 原画不再需要 cookie**：接口只给低清档时会自动用系统 Edge/Chrome 抓一次
               discover 页补上高清档（无 cookie、无登录、用临时 profile，十来秒）；

@@ -8,10 +8,10 @@ plugins {
 }
 
 group = "io.github.obihs2501.parsehubstudio"
-// 0.6.3：修「解析很久然后超时」—— 客户端 HTTP 超时放宽到 180 秒（CIO 默认 15 秒），
-// 高清档抓取提速（屏蔽图片，12.8s → 9.0s）。每发新版都要抬版本号 —— 版本号不变时
-// MSI 会拒绝覆盖安装（用户得先卸载），0.6.0 就吃过这个亏。
-version = "0.6.3"
+// 0.6.4：抖音「真·原画」（ratio=default 的未转码原始档，可能几 GB）+ 大文件断点续传
+// （分片下到一半中断不再从 0 重下）。
+// 每发新版都要抬版本号 —— 版本号不变时 MSI 会拒绝覆盖安装（用户得先卸载），0.6.0 就吃过这个亏。
+version = "0.6.4"
 
 // WiX light.exe 在 Windows 上对路径长度敏感（CI 上 D:\a\... 会触发 exit 311）。
 // 允许通过环境变量把 build 目录指到短路径。
@@ -80,7 +80,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "ParseHubStudio"
-            packageVersion = "0.6.3"
+            packageVersion = "0.6.4"
             // MSI/EXE 元数据必须保持纯 ASCII：jpackage 的 description 会写进 MSI 的
             // Summary Information，而 WiX 3 的 light.exe 按构建机 locale 选数据库代码页 ——
             // CI 是 en-US → 1252，中文描述直接 LGHT0311 退出 311；本机 zh-CN → 936 只是把
@@ -100,6 +100,11 @@ compose.desktop {
                 dirChooser = true
                 perUserInstall = true
                 upgradeUuid = "8c1f2a44-9d3b-4e77-8a11-6f0e2b9c4d31"
+                // 刻意**不设** installationPath：插件确实会把它当 jpackage 的 --install-dir 传下去，
+                // 但 jpackage 在 Windows 只把它当「per-user 根目录下的相对目录名」—— 传绝对路径
+                // （试过 C:\softwares\ParsehubStudio）被忽略并回落到 packageName，传相对名则得到
+                // %LOCALAPPDATA%\<名字>，都到不了 C:\softwares\ParsehubStudio。模板覆盖那条路也堵死
+                // （插件的 --resource-dir 会被自己清空）。详见 DEV_NOTES §4。
             }
         }
     }

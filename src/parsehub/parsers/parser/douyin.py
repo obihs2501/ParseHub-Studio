@@ -11,6 +11,7 @@ import httpx
 from ... import ProgressCallback
 from ...provider_api.douyin import DouyinMobileCrawler, DouyinMobileDevice, DouyinWebCrawler
 from ...provider_api.douyin_browser import enhance_with_browser
+from ...provider_api.douyin_origin import enhance_with_origin
 from ...types import (
     DownloadResult,
     ImageParseResult,
@@ -110,6 +111,8 @@ class DouyinParser(BaseParser):
             try:
                 web_crawler = DouyinWebCrawler(proxy=self.proxy, cookie=web_cookie)
                 response = await web_crawler.parse(raw_url)
+                # 网页接口给的仍是转码后最高档；真原画（ratio=default）要单独解析（失败静默跳过）
+                await enhance_with_origin(response, proxy=self.proxy)
                 return DouyinApiResult.parse(response)
             except ParseError as e:
                 web_error = e
@@ -120,6 +123,8 @@ class DouyinParser(BaseParser):
             response = await app_crawler.parse(raw_url)
             # 移动端接口常常只给 720P 及以下：用系统浏览器补高清档（内部保证绝不抛异常，失败静默跳过）
             await enhance_with_browser(response, raw_url, proxy=self.proxy)
+            # 补完高清档再解析真原画：原画分辨率取「当前最高档」，浏览器补的 4K 档要算进去
+            await enhance_with_origin(response, proxy=self.proxy)
             return DouyinApiResult.parse(response)
         except ParseError as e:
             mobile_error = e
@@ -184,11 +189,11 @@ def remove_video_watermark(url: str) -> str:
     return url.replace("playwm", "play")
 
 
-def _first_http_url(address: dict) -> str | None:
-    for url in address.get("url_list") or []:
-        if isinstance(url, str) and url.startswith(("https://", "http://")):
-            return url
-    return None
+def _http_urls(address: dict) -> list[str]:
+    """地址里的全部 http(s) 落点（原画档带多条 CDN 线路，下载时可故障切换）。"""
+    return [
+        url for url in address.get("url_list") or [] if isinstance(url, str) and url.startswith(("https://", "http://"))
+    ]
 
 
 def _stream_candidates(video_data: dict) -> list[dict]:
@@ -202,20 +207,28 @@ def _stream_candidates(video_data: dict) -> list[dict]:
     """
     candidates: list[dict] = []
 
-    def add(address: dict | None, gear: str = "", bytevc1: int | None = None, bitrate: int = 0) -> None:
+    def add(
+        address: dict | None,
+        gear: str = "",
+        bytevc1: int | None = None,
+        bitrate: int = 0,
+        origin: bool = False,
+    ) -> None:
         if not isinstance(address, dict):
             return
-        url = _first_http_url(address)
-        if not url:
+        urls = _http_urls(address)
+        if not urls:
             return
         candidates.append({
-            "url": remove_video_watermark(url),
+            "url": remove_video_watermark(urls[0]),
+            "urls": [remove_video_watermark(url) for url in urls],
             "width": int(address.get("width") or 0),
             "height": int(address.get("height") or 0),
             "size": int(address.get("data_size") or 0),
             "bitrate": int(bitrate or 0),
             "gear": gear,
             "codec": "h265" if bytevc1 else "h264",
+            "origin": origin,
         })
 
     add(video_data.get("play_addr"), gear="play_addr")
@@ -226,14 +239,17 @@ def _stream_candidates(video_data: dict) -> list[dict]:
                 gear=str(item.get("gear_name") or ""),
                 bytevc1=item.get("is_bytevc1"),
                 bitrate=item.get("bit_rate") or 0,
+                origin=str(item.get("quality_type") or "") == "origin",
             )
 
     unique: dict[str, dict] = {}
     for item in candidates:
         unique.setdefault(item["url"], item)
+    # 原画（ratio=default 的原始上传档）永远排第一：它就是最高档 —— 即使分辨率跟转码最高档
+    # 相同，体积也大得多；分辨率未知时也不该被挤到后面（前端画质芯片默认选第一档）。
     return sorted(
         unique.values(),
-        key=lambda i: (i["width"] * i["height"], i["size"], i["bitrate"]),
+        key=lambda i: (1 if i["origin"] else 0, i["width"] * i["height"], i["size"], i["bitrate"]),
         reverse=True,
     )
 
@@ -247,7 +263,10 @@ def parse_video_info(video_data: dict) -> dict:
     candidates = _stream_candidates(video_data)
     if not candidates:
         raise ParseError("抖音未返回可用视频地址")
-    best = candidates[0]
+    # 默认取「最高档」但**跳过原画**：原画是未转码的原始档，几 GB 很常见，而批次下载 / 历史 /
+    # 灯箱这几条路径没有画质芯片、用户也看不到体积，静默拉一份原始档会一下吃掉几十 GB。
+    # 原画仍然排在 variants 最前面（芯片 0），想要就显式选它。
+    best = next((item for item in candidates if not item["origin"]), candidates[0])
 
     cover = video_data.get("cover", {})
     thumb_url_list = cover.get("url_list", [])

@@ -70,6 +70,8 @@ class ParseResult(ABC):  # noqa: B024
             data = asdict(item)
             if data.get("variants") is None:
                 data.pop("variants", None)  # 只有多档位平台（抖音）才填这个字段
+            if not data.get("urls"):
+                data.pop("urls", None)  # 备用落点只在下载时按选中的档位填
             return data
 
         media: list[dict] | dict | None = None
@@ -143,6 +145,8 @@ class ParseResult(ABC):  # noqa: B024
                 f = await download(
                     media.url,
                     save_path,
+                    # 同一份内容的其它落点（抖音原画档有多条 CDN 线路），失败时按顺序切换
+                    candidates=list(media.urls) if media.urls else None,
                     headers=headers,
                     proxy=proxy,
                     progress=dl_progress,

@@ -65,7 +65,8 @@ class CleanRequest(StrictModel):
 class TaskRequest(StrictModel):
     text: str
     media_index: int | None = None
-    quality: Literal["origin", "thumb"] = "origin"
+    # "origin"（最高档）| "thumb"（缩略图）| "vN"（解析结果里第 N 个码流，见 tasks._apply_quality）
+    quality: str = Field(default="origin", pattern=r"^(origin|thumb|v\d+)$")
     path: str | None = None
     proxy: str | None = None
     parse_proxy: str | None = None

@@ -76,6 +76,8 @@ def media_to_dict(media: Any) -> dict[str, Any]:
         data["thumb_url"] = None
     if data.get("variants") is None:
         data.pop("variants", None)  # 只有多档位的平台（抖音）才带这个字段
+    if not data.get("urls"):
+        data.pop("urls", None)  # 备用落点只在下载时按选中的档位填（见 tasks._apply_variant）
     return data
 
 

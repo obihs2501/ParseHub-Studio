@@ -89,18 +89,35 @@ data class MediaVariant(
     val bitrate: Int = 0,
     val gear: String = "",
     val codec: String = "",
+    /** 抖音「真·原画」（ratio=default 的未转码原始档）：芯片显示档位名而不是分辨率。 */
+    val origin: Boolean = false,
 ) {
     /** 短边像素：竖屏视频（2160×3840）也叫 2160P，与抖音自己的档位命名一致。 */
     val shortSide: Int
         get() = listOf(width, height).filter { it > 0 }.minOrNull() ?: 0
 
-    /** 芯片文字，如「2160P · 13.7 MB」。 */
+    /** 芯片文字，如「2160P · 13.7 MB」；原画档显示档位名（「原画 · 812.4 MB」/「8K · 1.2 GB」）。 */
     val label: String
         get() = buildString {
-            val side = shortSide
-            append(if (side > 0) "${side}P" else "${width}×${height}")
-            if (size > 0) append(" · ").append(String.format(java.util.Locale.US, "%.1f MB", size / 1024.0 / 1024.0))
+            if (origin) {
+                append(gear.ifBlank { "原画" })
+            } else {
+                val side = shortSide
+                append(if (side > 0) "${side}P" else "${width}×${height}")
+            }
+            if (size > 0) append(" · ").append(sizeText)
         }
+
+    private val sizeText: String
+        get() = if (size >= GIB) {
+            String.format(java.util.Locale.US, "%.2f GB", size / GIB.toDouble())
+        } else {
+            String.format(java.util.Locale.US, "%.1f MB", size / 1024.0 / 1024.0)
+        }
+
+    private companion object {
+        const val GIB = 1024L * 1024 * 1024
+    }
 }
 
 /** 解析结果（/api/parse、批次 item.result、任务 payload）。 */

@@ -221,7 +221,7 @@ fun ParseScreen(state: AppState) {
                             )
                         }
                     }
-                    if (result.platform?.id == "douyin" && variants.first().shortSide in 1..1079) {
+                    if (result.platform?.id == "douyin" && !variants.first().origin && variants.first().shortSide in 1..1079) {
                         Spacer(Modifier.height(6.dp))
                         Text(
                             "只拿到 ${variants.first().shortSide}P：解析时会自动用系统 Edge/Chrome 抓高清档，若失败可检查是否装了浏览器；" +

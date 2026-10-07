@@ -1,10 +1,12 @@
 import asyncio
+import json
 import math
 import os
 import re
 import shutil
+import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -44,12 +46,22 @@ class FallbackToSingle(Exception):
     """服务端忽略 Range 时回退到普通单连接下载。"""
 
 
+# 断点身份文件：大文件（分片下载）会在临时目录里留这个，续传前用它确认「还是同一份内容」。
+RESUME_META_NAME = "resume.json"
+
+# 断点临时目录的保留上限：超过这段时间没再被写过，就当「放弃的下载」清掉 —— 取消/失败会留下
+# 几 GB 分片，没有这个兜底它们会永远占着下载目录（对齐 douyin_browser 的临时 profile 清理）。
+STALE_TEMP_SECONDS = 7 * 24 * 3600
+TEMP_SUFFIX = ".parsehub-tmp"
+
+
 class SegmentDownloader:
     def __init__(
         self,
         url: str,
         save_path: str | Path | None = None,
         *,
+        candidates: Sequence[str] | None = None,
         headers: Mapping[str, str] | None = None,
         proxy: str | httpx.Proxy | None = None,
         progress: ProgressCallback | None = None,
@@ -62,7 +74,7 @@ class SegmentDownloader:
         timeout: float | httpx.Timeout | None = None,
     ):
         self.url = url
-        self.candidates = media_candidates(url)
+        self.candidates = list(candidates) if candidates else media_candidates(url)
         self.save_path = save_path
         self.headers = dict(httpx.Headers(media_headers(url)))
         self.headers.update(dict(httpx.Headers(headers or {})))
@@ -79,6 +91,7 @@ class SegmentDownloader:
         self.resolved_path: Path | None = None
         self.temp_dir: Path | None = None
         self.complete_path: Path | None = None
+        self._keep_temp_dir = False
         self._progress_lock = asyncio.Lock()
         self._downloaded = 0
         self._part_downloaded: dict[int, int] = {}
@@ -147,26 +160,32 @@ class SegmentDownloader:
 
     async def _download_once(self, client: httpx.AsyncClient) -> None:
         resolved_path = self._require_resolved_path()
-        self._prepare_temp_dir(resolved_path)
+        probe = await self._probe(client)
+        # 只有大文件（走分片下载）才留断点：几 GB 的原画档断一次就重下整份不可接受，
+        # 而小文件重下代价低，保持「跑完即清」的老行为。
+        resumable = self._should_use_multipart(probe)
+        self._prepare_temp_dir(resolved_path, resumable=resumable, probe=probe)
         try:
-            probe = await self._probe(client)
-            if self._should_use_multipart(probe):
+            if resumable:
                 try:
                     await self._download_multipart(client, probe.total_size or 0)
                 except FallbackToSingle:
-                    self._cleanup_temp_dir()
+                    resumable = False
                     self._reset_progress()
-                    self._prepare_temp_dir(resolved_path)
+                    self._prepare_temp_dir(resolved_path, resumable=False, probe=probe, fresh=True)
                     await self._download_single(client, probe.total_size)
             else:
                 await self._download_single(client, probe.total_size)
 
             os.replace(self._require_complete_path(), resolved_path)
         except BaseException:
-            self._cleanup_temp_dir()
+            # 保留断点，本轮重试（或下次调用）接着下
+            self._keep_temp_dir = resumable
             raise
         finally:
-            self._cleanup_temp_dir()
+            if not self._keep_temp_dir:
+                self._cleanup_temp_dir()
+            self._keep_temp_dir = False
 
     async def _probe(self, client: httpx.AsyncClient) -> RangeProbe:
         total_size: int | None = None
@@ -254,7 +273,16 @@ class SegmentDownloader:
         parts_dir = temp_dir.joinpath("parts")
         parts_dir.mkdir(parents=True, exist_ok=True)
         parts = self._build_parts(total_size, parts_dir)
-        tasks = [asyncio.create_task(self._download_part(client, part, total_size)) for part in parts]
+        # 断点续传：已经下完的分片直接跳过，并计入进度（进度条不从 0 重来）
+        pending: list[RangePart] = []
+        for part in parts:
+            if self._part_is_complete(part):
+                self._part_downloaded[part.index] = part.size
+                self._downloaded += part.size
+            else:
+                pending.append(part)
+        await self._report_resumed(total_size)
+        tasks = [asyncio.create_task(self._download_part(client, part, total_size)) for part in pending]
 
         try:
             await asyncio.gather(*tasks)
@@ -267,16 +295,27 @@ class SegmentDownloader:
         await self._merge_parts(parts, total_size)
         await self._report_finish(total_size)
 
+    @staticmethod
+    def _part_is_complete(part: RangePart) -> bool:
+        try:
+            return part.path.stat().st_size == part.size
+        except OSError:
+            return False
+
     async def _download_part(self, client: httpx.AsyncClient, part: RangePart, total_size: int) -> None:
         for attempt in range(self.max_retries + 1):
-            received = 0
             try:
-                if part.path.exists():
-                    part.path.unlink()
+                # 续传：这一片上次写到一半就从那里接着下（起点由服务端回显校验）
+                have = part.path.stat().st_size if part.path.exists() else 0
+                if have >= part.size:
+                    have = 0
+                    part.path.unlink(missing_ok=True)
+                start = part.start + have
+                received = have
                 async with client.stream(
                     "GET",
                     self.url,
-                    headers=self._headers({"Accept-Encoding": "identity", "Range": f"bytes={part.start}-{part.end}"}),
+                    headers=self._headers({"Accept-Encoding": "identity", "Range": f"bytes={start}-{part.end}"}),
                     follow_redirects=True,
                 ) as response:
                     if response.status_code == 200:
@@ -286,9 +325,9 @@ class SegmentDownloader:
                         raise DownloadError(f"分片下载失败: HTTP {response.status_code}")
                     if _has_non_identity_encoding(response.headers.get("Content-Encoding")):
                         raise FallbackToSingle
-                    self._validate_part_response(part, response.headers, total_size)
+                    self._validate_part_response(part, response.headers, total_size, expected_start=start)
 
-                    async with aiofiles.open(part.path, "wb") as f:
+                    async with aiofiles.open(part.path, "ab" if have else "wb") as f:
                         async for chunk in response.aiter_bytes(chunk_size=self.chunk_size):
                             if not chunk:
                                 continue
@@ -327,9 +366,18 @@ class SegmentDownloader:
         if actual_size != total_size:
             raise DownloadError(f"合并后文件大小不匹配: 期望 {total_size} 字节, 实际 {actual_size} 字节")
 
+    def _part_count(self, total_size: int) -> int:
+        """分片数量。
+
+        **必须和断点身份一起记录**：连接数变了分片边界就跟着变，旧断点的 ``NNNNNN.part``
+        会被当成「另一段范围」的半成品接着写 —— 长度检查全过、内容却是坏的（静默损坏）。
+        """
+        if total_size <= 0:
+            return 1
+        return max(1, min(self.connections, math.ceil(total_size / self.min_split_size)))
+
     def _build_parts(self, total_size: int, parts_dir: Path) -> list[RangePart]:
-        part_count = min(self.connections, math.ceil(total_size / self.min_split_size))
-        part_count = max(1, part_count)
+        part_count = self._part_count(total_size)
         part_size = math.ceil(total_size / part_count)
         parts = []
         for index in range(part_count):
@@ -338,13 +386,16 @@ class SegmentDownloader:
             parts.append(RangePart(index=index, start=start, end=end, path=parts_dir.joinpath(f"{index:06d}.part")))
         return parts
 
-    def _validate_part_response(self, part: RangePart, headers: httpx.Headers, total_size: int) -> None:
+    def _validate_part_response(
+        self, part: RangePart, headers: httpx.Headers, total_size: int, *, expected_start: int | None = None
+    ) -> None:
         parsed_range = _parse_content_range(headers.get("Content-Range", ""))
         if not parsed_range:
             raise DownloadError("分片响应缺少 Content-Range")
         start, end, response_total = parsed_range
-        if start != part.start or end != part.end:
-            raise DownloadError(f"分片范围不匹配: 期望 {part.start}-{part.end}, 实际 {start}-{end}")
+        want_start = part.start if expected_start is None else expected_start
+        if start != want_start or end != part.end:
+            raise DownloadError(f"分片范围不匹配: 期望 {want_start}-{part.end}, 实际 {start}-{end}")
         if response_total != total_size:
             raise DownloadError(f"远端文件大小变化: 期望 {total_size}, 实际 {response_total}")
 
@@ -358,10 +409,80 @@ class SegmentDownloader:
             and not _has_non_identity_encoding(probe.content_encoding)
         )
 
-    def _prepare_temp_dir(self, resolved_path: Path) -> None:
-        self.temp_dir = resolved_path.parent.joinpath(f".{resolved_path.name}.{uuid.uuid4().hex}.parsehub-tmp")
-        self.temp_dir.mkdir(parents=True, exist_ok=False)
+    def _prepare_temp_dir(
+        self, resolved_path: Path, *, resumable: bool, probe: RangeProbe, fresh: bool = False
+    ) -> None:
+        """准备临时目录。
+
+        ``resumable`` 时用固定目录名（``.<文件名>.parsehub-tmp``）并保留断点，供续传复用；
+        否则沿用「随机名 + 用完即清」的老行为。复用前会用 ``probe`` 校验断点身份
+        （大小 / ETag / Last-Modified），不是同一份内容就丢弃重下。
+        """
+        if fresh and self.temp_dir is not None:
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+            self.temp_dir = None
+        self.complete_path = None
+        self._cleanup_stale_temp_dirs(resolved_path.parent)
+        if resumable:
+            target = resolved_path.parent.joinpath(f".{resolved_path.name}{TEMP_SUFFIX}")
+            if target.exists() and not self._resume_identity_matches(target, probe):
+                shutil.rmtree(target, ignore_errors=True)
+            target.mkdir(parents=True, exist_ok=True)
+            self.temp_dir = target
+            self._write_resume_meta(target, probe)
+        else:
+            if self.temp_dir is not None:
+                shutil.rmtree(self.temp_dir, ignore_errors=True)
+            self.temp_dir = resolved_path.parent.joinpath(f".{resolved_path.name}.{uuid.uuid4().hex}{TEMP_SUFFIX}")
+            self.temp_dir.mkdir(parents=True, exist_ok=False)
         self.complete_path = self.temp_dir.joinpath("complete.tmp")
+
+    def _write_resume_meta(self, temp_dir: Path, probe: RangeProbe) -> None:
+        meta = {
+            "total": probe.total_size,
+            "etag": probe.etag,
+            "last_modified": probe.last_modified,
+            # 分片布局也要记：连接数变了边界就变，旧分片不能当半成品接着写
+            "parts": self._part_count(probe.total_size or 0),
+        }
+        try:
+            temp_dir.joinpath(RESUME_META_NAME).write_text(json.dumps(meta), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _resume_identity_matches(self, temp_dir: Path, probe: RangeProbe) -> bool:
+        """断点是不是同一份内容（且分片布局一致）：全对得上才敢续传。"""
+        try:
+            meta = json.loads(temp_dir.joinpath(RESUME_META_NAME).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return (
+            meta.get("total") == probe.total_size
+            and meta.get("etag") == probe.etag
+            and meta.get("last_modified") == probe.last_modified
+            and meta.get("parts") == self._part_count(probe.total_size or 0)
+        )
+
+    def _cleanup_stale_temp_dirs(self, parent: Path) -> None:
+        """清掉同目录下很久没动过的断点临时目录。
+
+        正在下载的目录 mtime 是新的，不会被误删；只有被放弃（取消 / 重试用尽）且放置超过
+        ``STALE_TEMP_SECONDS`` 的才会回收。
+        """
+        now = time.time()
+        try:
+            candidates = list(parent.glob(f".*{TEMP_SUFFIX}"))
+        except OSError:
+            return
+        for path in candidates:
+            if path == self.temp_dir:
+                continue
+            try:
+                if now - path.stat().st_mtime < STALE_TEMP_SECONDS:
+                    continue
+            except OSError:
+                continue
+            shutil.rmtree(path, ignore_errors=True)
 
     def _cleanup_temp_dir(self) -> None:
         if self.temp_dir:
@@ -388,6 +509,13 @@ class SegmentDownloader:
                 return
             self._downloaded = downloaded
             await self.progress(downloaded, total, *self.progress_args, **self.progress_kwargs)
+
+    async def _report_resumed(self, total: int) -> None:
+        """续传时先把「已下完的部分」报给 UI，否则进度条会从 0 重新爬。"""
+        if not self.progress or self._downloaded <= 0 or total <= 0:
+            return
+        async with self._progress_lock:
+            await self.progress(self._downloaded, total, *self.progress_args, **self.progress_kwargs)
 
     async def _report_finish(self, total: int) -> None:
         if not self.progress or total <= 0:
@@ -427,6 +555,7 @@ async def download(
     url: str,
     save_path: str | Path | None = None,
     *,
+    candidates: Sequence[str] | None = None,
     headers: dict[str, str] | None = None,
     proxy: str | httpx.Proxy | None = None,
     progress: ProgressCallback | None = None,
@@ -443,6 +572,7 @@ async def download(
 
     :param url: 下载链接
     :param save_path: 保存路径, 默认保存到 downloads 文件夹, 如果路径以 / 结尾，则自动获取文件名
+    :param candidates: 同一份内容的其它落点，按顺序在重试时切换（默认只有 url 本身）
     :param headers: 请求头
     :param proxy: 代理
     :param progress: 下载进度回调函数
@@ -461,6 +591,7 @@ async def download(
     downloader = SegmentDownloader(
         url,
         save_path,
+        candidates=candidates,
         headers=headers,
         proxy=proxy,
         progress=progress,
