@@ -128,9 +128,9 @@ jobs:
           name: ParseHubStudio-windows-x64
           path: studio/release/*
           if-no-files-found: error
-          # 安装包只是「传给同一次运行里的 release job」，几天后就没用了。
-          # 30 天 × 每次 push 300MB 会把 Actions 存储额度撑爆（2026-10 已踩坑）。
-          retention-days: 3
+          # 安装包只是「传给同一次运行里的 release job」，run 内几十分钟就消费完。
+          # 保留期取最小值 1 天；30 天 × 每次 push 300MB 曾把 Actions 存储额度撑爆（2026-10 已踩坑）。
+          retention-days: 1
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -265,11 +265,15 @@ jobs:
           }
           $checksums | Out-File -Encoding utf8 release/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
+        # 只有 release-compose 会下载这个包，而它只在 feat/** 的非 PR 推送下运行；
+        # PR / master / fix 推送下没有任何 job 消费它，250MB 纯属白占额度。
+        # 条件与 release-compose 的 if 保持一致，改那边时记得同步这里。
+        if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/feat/')
         with:
           name: ParseHubStudioCompose-windows-x64
           path: studio-compose/release/*
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
       - name: Collect Compose diagnostics (locale, WiX tools, jpackage WiX sources)
         if: always()
         run: |
