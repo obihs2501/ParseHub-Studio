@@ -128,12 +128,15 @@ jobs:
           name: ParseHubStudio-windows-x64
           path: studio/release/*
           if-no-files-found: error
-          retention-days: 30
+          # 安装包只是「传给同一次运行里的 release job」，几天后就没用了。
+          # 30 天 × 每次 push 300MB 会把 Actions 存储额度撑爆（2026-10 已踩坑）。
+          retention-days: 3
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: failure()
         with:
           name: rust-lockfile
           path: studio/src-tauri/Cargo.lock
+          retention-days: 3
       - name: Collect build diagnostics
         if: failure()
         run: |
@@ -149,6 +152,7 @@ jobs:
         with:
           name: build-diagnostics
           path: studio/dist/diagnostics/
+          retention-days: 3
 
   compose:
     name: Windows x64 Compose (miuix) installer and portable
@@ -265,7 +269,7 @@ jobs:
           name: ParseHubStudioCompose-windows-x64
           path: studio-compose/release/*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 3
       - name: Collect Compose diagnostics (locale, WiX tools, jpackage WiX sources)
         if: always()
         run: |
@@ -298,13 +302,15 @@ jobs:
           Copy-Item -Recurse -Force C:\b\compose\logs dist/diagnostics/ -ErrorAction SilentlyContinue
           exit 0
       - name: Upload Compose build diagnostics
-        if: always()
+        # 只在失败时上传：成功时这个包（jpackage 的 WiX 源码 + 完整 gradle 日志）也照样传，
+        # 纯属白占额度。上面的诊断步骤仍然每次都跑，日志在 workflow log 里能看到。
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: compose-build-diagnostics
           path: studio-compose/dist/diagnostics/**
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
   release-compose:
     name: Publish Compose (miuix) release
